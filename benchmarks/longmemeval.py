@@ -83,10 +83,16 @@ class SystemSpec:
     policy: Policy = Policy.PRIORITY
     lazy_budget: float | None = None
     include_stale: bool = False  # stale_control serves withheld nodes as if they were current
+    nodes: bool = True  # define profile and timeline nodes over the facts
+    raw_events: int = CONTEXT_ITEMS  # raw_search only: events retrieved before the char cap
 
 
 SYSTEMS: tuple[SystemSpec, ...] = (
     SystemSpec("raw_search", facts=False),
+    # Ablations: raw search filled to the same character cap Strata contexts use, and Strata
+    # facts plus source events without any derived nodes.
+    SystemSpec("raw_search_24k", facts=False, raw_events=3 * CONTEXT_ITEMS),
+    SystemSpec("strata_no_nodes", facts=True, nodes=False),
     SystemSpec("strata_eager", facts=True, bg_budget=math.inf),
     SystemSpec("strata_priority", facts=True, bg_budget=BACKGROUND_BUDGET),
     SystemSpec("strata_lazy", facts=True, lazy_budget=LAZY_BUDGET),
@@ -99,6 +105,7 @@ SYSTEMS: tuple[SystemSpec, ...] = (
     ),
 )
 SYSTEM_NAMES = tuple(s.name for s in SYSTEMS)
+BASELINES = ("raw_search", "raw_search_24k")
 
 # ---------------------------------------------------------------------------- data
 
@@ -362,7 +369,8 @@ def to_context_item(m: Memory, item: RecallItem) -> tuple[dict[str, str | None],
     return {"date": None, "text": f"{item.kind} of {item.key}: {item.text}"}, events
 
 
-def render_context(items: list[dict[str, str | None]]) -> str:
+def render_context(items: list[dict[str, str | None]]) -> tuple[str, int]:
+    """The rendered context and how many items fit under CONTEXT_CHARS."""
     parts, used = [], 0
     for i, it in enumerate(items, 1):
         text = (it["text"] or "")[:ITEM_CHARS]
@@ -372,7 +380,7 @@ def render_context(items: list[dict[str, str | None]]) -> str:
             break
         parts.append(block)
         used += len(block)
-    return "\n\n".join(parts) if parts else "(no memory items retrieved)"
+    return ("\n\n".join(parts) if parts else "(no memory items retrieved)"), len(parts)
 
 
 def make_timeline(subject: str, attribute: str) -> Callable[[Context], dict[str, Any]]:
@@ -441,11 +449,12 @@ def run_system(
                 try:
                     m.assert_facts(writes)
                     asserted += len(writes)
-                    for w in writes:
-                        if w.subject not in defined:
-                            define_profile(m, w.subject)
-                            defined.add(w.subject)
-                    define_timelines(m, writes, timelines)
+                    if spec.nodes:
+                        for w in writes:
+                            if w.subject not in defined:
+                                define_profile(m, w.subject)
+                                defined.add(w.subject)
+                        define_timelines(m, writes, timelines)
                 except StrataError:
                     assert_failures += 1
             if spec.bg_budget is not None:
@@ -457,8 +466,8 @@ def run_system(
         )
 
         started = time.perf_counter()
-        if spec.name == "raw_search":
-            recalled = m.search_events(q["question"], CONTEXT_ITEMS)
+        if not spec.facts:
+            recalled = m.search_events(q["question"], spec.raw_events)
             fallback_used, suppressed, refreshed, warnings = True, 0, 0, ()
         else:
             res = m.recall(
@@ -473,15 +482,18 @@ def run_system(
                 res.fallback_used, res.suppressed, res.refreshed, res.warnings)
         latency_ms = (time.perf_counter() - started) * 1000
 
+        converted = [to_context_item(m, item) for item in recalled]
+        rendered, fitted = render_context([ctx for ctx, _ in converted])
+        # Only items that fit under the character cap reach the answer model.
         context, seen_events, statuses = [], set(), Counter()
-        for item in recalled:
-            ctx, events = to_context_item(m, item)
+        for item, (ctx, events) in zip(recalled[:fitted], converted[:fitted], strict=True):
             context.append(ctx)
             seen_events.update(events)
             statuses[f"{item.status}:{item.kind if item.kind in ('event', 'fact') else 'node'}"] += 1
         return {
             "context": context,
-            "rendered": render_context(context),
+            "rendered": rendered,
+            "retrieved_items": len(recalled),
             "retrieval_ms": latency_ms,
             "fallback_used": fallback_used,
             "suppressed": suppressed,
@@ -502,10 +514,17 @@ def run_system(
 
 def retrieve_question(q: dict[str, Any], model: CachedBackend) -> dict:
     path = OUT / "contexts" / f"{q['question_id']}.json"
-    if path.exists():
-        return read_json(path)
+    cached = read_json(path) if path.exists() else None
+    if cached is not None and set(SYSTEM_NAMES) <= set(cached["systems"]):
+        return cached
     sessions = prepare_sessions(q)
     factlog = extract_question(q, sessions, model)
+    if cached is not None:  # add systems introduced after this context was written
+        for spec in SYSTEMS:
+            if spec.name not in cached["systems"]:
+                cached["systems"][spec.name] = run_system(q, sessions, factlog, spec)
+        write_json(path, cached)
+        return cached
     out = {
         "qid": q["question_id"],
         "n_sessions": len(sessions),
@@ -807,7 +826,7 @@ def build_report(
         }
     for ans in answerers:
         block: dict[str, Any] = {}
-        raw_vec: dict[str, int] = {}
+        base_vecs: dict[str, dict[str, int]] = {}
         for system in SYSTEM_NAMES:
             recs = [
                 (qmap[qid], answers[(qid, system, ans)])
@@ -827,8 +846,8 @@ def build_report(
             labels = Counter(r["label"] for r in ku)
             valid_types = [per_type[t]["rate"] for t in types if per_type[t]["n"]]
             vec = {r["qid"]: int(r["correct"]) for _, r in recs}
-            if system == "raw_search":
-                raw_vec = vec
+            if system in BASELINES:
+                base_vecs[system] = vec
             entry = {
                 "n": len(recs),
                 "accuracy": rate(sum(r["correct"] for _, r in recs), len(recs)),
@@ -850,13 +869,17 @@ def build_report(
                 "in_tokens_mean": statistics.fmean(r["in_tokens"] for _, r in recs),
                 "out_tokens_mean": statistics.fmean(r["out_tokens"] for _, r in recs),
             }
-            shared = [k for k in vec if k in raw_vec]
-            if system != "raw_search" and shared:
-                entry["paired_diff_vs_raw"] = {
-                    "n": len(shared),
-                    "mean": statistics.fmean(vec[k] - raw_vec[k] for k in shared),
-                    "ci95": paired_bootstrap([vec[k] for k in shared], [raw_vec[k] for k in shared]),
-                }
+            entry["paired_diff"] = {}
+            for base, base_vec in base_vecs.items():
+                shared = [k for k in vec if k in base_vec]
+                if system != base and shared:
+                    entry["paired_diff"][base] = {
+                        "n": len(shared),
+                        "mean": statistics.fmean(vec[k] - base_vec[k] for k in shared),
+                        "ci95": paired_bootstrap(
+                            [vec[k] for k in shared], [base_vec[k] for k in shared]
+                        ),
+                    }
             block[system] = entry
         report["answerers"][ans] = block
     return report
@@ -886,12 +909,18 @@ def render_markdown(rep: dict[str, Any]) -> str:
         lines += [
             "| system | n | accuracy | task-avg | accuracy (judge2) | judge agreement | KU acc |"
             " KU strict current-only | KU outdated-as-current | abs-question acc |"
-            " abstain on answerable | paired diff vs raw (95% CI) |",
-            "|---|---|---|---|---|---|---|---|---|---|---|---|",
+            " abstain on answerable |"
+            + "".join(f" diff vs {b} (95% CI) |" for b in BASELINES),
+            "|---|---|---|---|---|---|---|---|---|---|---|" + "---|" * len(BASELINES),
         ]
         for system, e in block.items():
-            d = e.get("paired_diff_vs_raw")
-            diff = f"{d['mean']:+.3f} [{d['ci95'][0]:+.3f}, {d['ci95'][1]:+.3f}]" if d else "-"
+            diffs = []
+            for base in BASELINES:
+                d = e["paired_diff"].get(base)
+                diffs.append(
+                    f"{d['mean']:+.3f} [{d['ci95'][0]:+.3f}, {d['ci95'][1]:+.3f}]" if d else "-"
+                )
+            diff = " | ".join(diffs)
             lines.append(
                 f"| {system} | {e['n']} | {fmt_rate(e['accuracy'])} | {e['task_averaged_accuracy']:.3f} |"
                 f" {fmt_rate(e['accuracy_judge2'])} | {fmt_rate(e['judge_agreement'])} |"
