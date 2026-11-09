@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.db
+*.db-wal
+*.db-shm
+dist/
+*.egg-info/
+.venv/
+
+benchmarks/data/
+benchmarks/out/
+benchmarks/results/
