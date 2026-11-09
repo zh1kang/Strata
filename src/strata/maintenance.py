@@ -9,6 +9,7 @@ committed as valid.
 
 from __future__ import annotations
 
+import heapq
 import json
 import math
 import secrets
@@ -43,9 +44,9 @@ class _Registered:
     version: str
     search_text: SearchText | None = None
 
-    def index_text(self, kind: str, key: str, value: Any) -> str:
+    def index_text(self, kind: str, key: str, keywords: str, value: Any) -> str:
         body = self.search_text(value) if self.search_text else index.flatten(value)
-        return f"{kind} {key} {body}"
+        return f"{kind} {key} {keywords} {body}"
 
 
 class Engine:
@@ -77,16 +78,18 @@ class Engine:
         cost: float = 1.0,
         version: str = "1",
         search_text: SearchText | None = None,
+        keywords: str = "",
     ) -> None:
         """Register a derivation and ensure its node exists.
 
         Changing ``version`` (i.e. the derivation's code) invalidates the node
         and its dependents. Changing ``level`` of an existing node is an error.
 
-        A node is searchable by kind and key from the moment it is defined, so a
-        query can find (and withhold or lazily build) a node that was never built.
-        Once built it is indexed by ``search_text(value)``, by default the
-        flattened value.
+        A node is searchable by kind, key, and ``keywords`` from the moment it is
+        defined, so a query can find (and withhold or lazily build) a node that was
+        never built. Once built it is also indexed by ``search_text(value)``, by
+        default the flattened value. Defining a node again with other keywords
+        re-indexes it without invalidating anything.
         """
         if not kind or not key:
             raise ValueError("node kind and key must be non-empty")
@@ -97,32 +100,36 @@ class Engine:
         db = self.store.db
         with self.store.write() as txn:
             row = db.execute(
-                "SELECT node_id, level, code_version, state, value FROM nodes"
+                "SELECT node_id, level, code_version, state, value, keywords FROM nodes"
                 " WHERE kind=? AND node_key=?",
                 (kind, key),
             ).fetchone()
+            reg = _Registered(fn, float(cost), version, search_text)
             if row is None:
                 node_id = db.execute(
                     "INSERT INTO nodes(kind, node_key, level, cost, code_version, state,"
-                    " dirty_since)"
-                    " VALUES (?, ?, ?, ?, ?, 'pending', ?)",
-                    (kind, key, level, cost, version, txn.revision),
+                    " dirty_since, keywords)"
+                    " VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
+                    (kind, key, level, cost, version, txn.revision, keywords),
                 ).lastrowid
-                index.upsert(db, "node", int(node_id or 0), f"{kind} {key}")
+                index.upsert(db, "node", int(node_id or 0), f"{kind} {key} {keywords}")
             else:
-                if row["value"] is None:  # databases written before unbuilt nodes were indexed
-                    index.upsert(db, "node", int(row["node_id"]), f"{kind} {key}")
+                if row["value"] is None:  # also covers databases written before unbuilt indexing
+                    index.upsert(db, "node", int(row["node_id"]), f"{kind} {key} {keywords}")
+                elif row["keywords"] != keywords:
+                    text = reg.index_text(kind, key, keywords, json.loads(row["value"]))
+                    index.upsert(db, "node", int(row["node_id"]), text)
                 if row["level"] != level:
                     raise ValueError(
                         f"node {kind}/{key} already has level {row['level']}, not {level}"
                     )
                 db.execute(
-                    "UPDATE nodes SET cost=?, code_version=? WHERE node_id=?",
-                    (cost, version, row["node_id"]),
+                    "UPDATE nodes SET cost=?, code_version=?, keywords=? WHERE node_id=?",
+                    (cost, version, keywords, row["node_id"]),
                 )
                 if row["code_version"] != version and row["state"] != "pending":
                     graph.invalidate_nodes(db, txn.revision, [row["node_id"]])
-        self.registry[(kind, key)] = _Registered(fn, float(cost), version, search_text)
+        self.registry[(kind, key)] = reg
 
     # ------------------------------------------------------------------ queries
 
@@ -152,6 +159,8 @@ class Engine:
             int(row["attempts"]),
             row["last_error"],
             int(row["access_count"]),
+            row["measured_cost"],
+            row["keywords"],
         )
 
     def get_node(self, kind: str, key: str) -> NodeInfo:
@@ -206,12 +215,31 @@ class Engine:
 
     # ------------------------------------------------------------------ scheduling
 
+    _ELIGIBLE_SQL = (
+        "SELECT n.* FROM nodes n WHERE n.state IN (" + _DIRTY_SQL + ")"
+        " AND NOT EXISTS (SELECT 1 FROM node_deps d JOIN nodes u ON u.node_id = d.dep_node"
+        "  WHERE d.node_id = n.node_id AND d.dep_kind='node' AND u.state != 'valid')"
+    )
+
     def _candidates(self) -> list[sqlite3.Row]:
+        """Dirty nodes whose recorded node dependencies are all valid."""
+        return self.store.db.execute(self._ELIGIBLE_SQL + " ORDER BY n.node_id").fetchall()
+
+    def _eligible_among(self, ids: Collection[int]) -> list[sqlite3.Row]:
         return self.store.db.execute(
-            "SELECT n.* FROM nodes n WHERE n.state IN (" + _DIRTY_SQL + ")"
-            " AND NOT EXISTS (SELECT 1 FROM node_deps d JOIN nodes u ON u.node_id = d.dep_node"
-            "  WHERE d.node_id = n.node_id AND d.dep_kind='node' AND u.state != 'valid')"
-            " ORDER BY n.node_id"
+            self._ELIGIBLE_SQL + " AND n.node_id IN (SELECT value FROM json_each(?))"
+            " ORDER BY n.node_id",
+            (json.dumps(sorted(set(ids))),),
+        ).fetchall()
+
+    def _eligible_row(self, node_id: int) -> sqlite3.Row | None:
+        return self.store.db.execute(self._ELIGIBLE_SQL + " AND n.node_id=?", (node_id,)).fetchone()
+
+    def _eligible_dependents(self, node_id: int) -> list[sqlite3.Row]:
+        return self.store.db.execute(
+            self._ELIGIBLE_SQL + " AND n.node_id IN (SELECT node_id FROM node_deps"
+            "  WHERE dep_kind='node' AND dep_node=?) ORDER BY n.node_id",
+            (node_id,),
         ).fetchall()
 
     def maintain(
@@ -224,7 +252,13 @@ class Engine:
 
         ``budget=None`` is unlimited. Verification of suspect nodes whose inputs
         did not change is free and always runs. ``only`` restricts the run to
-        the given node ids (used for on-demand refresh).
+        the given node ids (used for on-demand refresh); a restricted run also
+        builds any dirty lower-level node that one of them turns out to read, so
+        a chain of never-built nodes can be repaired on demand.
+
+        Each step picks the first eligible node in policy order, exactly as a full
+        rescan would, but eligible nodes are kept in a priority queue and only the
+        dependents of a node that became valid are re-examined.
         """
         pol = scheduler.parse_policy(policy)
         if budget is None:
@@ -233,62 +267,120 @@ class Engine:
             bud = budget
         else:
             bud = Budget(float(budget))
+        sort_key = scheduler.key(pol)
         report = MaintenanceReport()
         allowed = None if only is None else set(only)
         settled: set[int] = set()  # never revisited this run (failed, conflicted, ...)
         blocked: set[int] = set()  # revisited after any progress
         skipped: set[int] = set()  # did not fit the budget
         needs_compute: set[int] = set()  # suspect nodes whose inputs changed
+        heap: list[tuple[tuple[Any, ...], int]] = []
+        queued: set[int] = set()
+        to_verify: set[int] = set()
+        deferred: list[int] = []  # popped while blocked; pushed back after progress
+        keys: dict[int, tuple[Any, ...]] = {}
         attempts = 0
 
+        def enqueue(rows: list[sqlite3.Row]) -> bool:
+            added = False
+            for row in rows:
+                nid = int(row["node_id"])
+                if nid in queued or nid in settled or nid in skipped:
+                    continue
+                if allowed is not None and nid not in allowed:
+                    continue
+                queued.add(nid)
+                keys[nid] = sort_key(row)
+                heapq.heappush(heap, (keys[nid], nid))
+                if row["state"] == "suspect" and nid not in needs_compute:
+                    to_verify.add(nid)
+                added = True
+            return added
+
+        def became_valid(node_id: int) -> None:
+            queued.discard(node_id)
+            enqueue(self._eligible_dependents(node_id))
+
+        def unblock() -> None:
+            blocked.clear()
+            for nid in deferred:
+                heapq.heappush(heap, (keys[nid], nid))
+            deferred.clear()
+
+        enqueue(self._candidates())
         while True:
-            cands = [
-                r
-                for r in self._candidates()
-                if (allowed is None or r["node_id"] in allowed) and r["node_id"] not in settled
-            ]
-            progressed = False
-            for row in cands:
-                if row["state"] == "suspect" and row["node_id"] not in needs_compute:
-                    if self._verify(row["node_id"]):
+            while to_verify:  # free verification, in node id order, wave by wave
+                wave = sorted(to_verify)
+                to_verify.clear()
+                progressed = False
+                for nid in wave:
+                    row = self._eligible_row(nid)
+                    if row is None or row["state"] != "suspect" or nid in needs_compute:
+                        continue
+                    if self._verify(nid):
                         report.verified += 1
                         report.outcomes.append(f"{row['kind']}:{row['node_key']}:verified")
                         progressed = True
+                        became_valid(nid)
                     else:
-                        needs_compute.add(row["node_id"])
-            if progressed:
-                blocked.clear()
-                continue
+                        needs_compute.add(nid)
+                if progressed:
+                    unblock()
             if bud.max_jobs is not None and attempts >= bud.max_jobs:
                 break
             chosen: sqlite3.Row | None = None
-            for row in scheduler.order(pol, cands):
-                node_id = row["node_id"]
-                if node_id in blocked or node_id in skipped:
+            while heap:
+                _, nid = heapq.heappop(heap)
+                if nid not in queued or nid in skipped or nid in settled:
+                    continue
+                if nid in blocked:
+                    deferred.append(nid)
+                    continue
+                row = self._eligible_row(nid)
+                if row is None:  # repaired, failed, or waiting on a dirty input again
+                    queued.discard(nid)
+                    continue
+                if sort_key(row) != keys[nid]:
+                    keys[nid] = sort_key(row)
+                    heapq.heappush(heap, (keys[nid], nid))
                     continue
                 reg = self.registry.get((row["kind"], row["node_key"]))
                 if reg is None:
-                    settled.add(node_id)
+                    settled.add(nid)
                     report.unregistered += 1
                     report.outcomes.append(f"{row['kind']}:{row['node_key']}:unregistered")
                     continue
-                if reg.cost > bud.cost - report.cost + _EPS:
-                    skipped.add(node_id)
+                estimate = reg.cost if row["measured_cost"] is None else row["measured_cost"]
+                if estimate > bud.cost - report.cost + _EPS:
+                    skipped.add(nid)
                     report.outcomes.append(f"{row['kind']}:{row['node_key']}:skipped_budget")
                     continue
                 chosen = row
                 break
             if chosen is None:
+                # Drained: pick up anything another connection made eligible meanwhile.
+                if enqueue(self._candidates()):
+                    continue
                 break
+            nid = int(chosen["node_id"])
             attempts += 1
-            outcome = self._run(chosen, self.registry[(chosen["kind"], chosen["node_key"])], report)
+            outcome, missing = self._run(
+                chosen, self.registry[(chosen["kind"], chosen["node_key"])], report
+            )
             report.outcomes.append(f"{chosen['kind']}:{chosen['node_key']}:{outcome}")
             if outcome in ("computed", "cutoff"):
-                blocked.clear()
+                became_valid(nid)
+                unblock()
             elif outcome == "not_ready":
-                blocked.add(chosen["node_id"])
+                blocked.add(nid)
+                deferred.append(nid)
+                if allowed is not None and missing:
+                    upstream = graph.upstream_dirty(self.store.db, missing)
+                    allowed.update(upstream)
+                    enqueue(self._eligible_among(upstream))
             else:
-                settled.add(chosen["node_id"])
+                queued.discard(nid)
+                settled.add(nid)
 
         report.skipped_budget = sum(1 for n in skipped if self._is_dirty(n))
         report.dirty = self.dirty_count()
@@ -342,14 +434,21 @@ class Engine:
                 "DELETE FROM leases WHERE node_id=? AND token=?", (node_id, token)
             )
 
-    def _run(self, row: sqlite3.Row, reg: _Registered, report: MaintenanceReport) -> str:
+    def _run(
+        self, row: sqlite3.Row, reg: _Registered, report: MaintenanceReport
+    ) -> tuple[str, set[int]]:
+        """Rebuild one node; also returns the lower-level nodes it found not ready."""
         node_id = int(row["node_id"])
         token = self._claim(node_id)
         if token is None:
             report.lease_busy += 1
-            return "lease_busy"
+            return "lease_busy", set()
         ctx = Context(self.store, node_id, row["kind"], row["node_key"], int(row["level"]))
         released = False
+
+        def spent() -> float:
+            return reg.cost if ctx.charged is None else ctx.charged
+
         try:
             try:
                 value = reg.fn(ctx)
@@ -357,33 +456,35 @@ class Engine:
                 text = encode(value)
             except DependencyNotReadyError:
                 report.not_ready += 1
-                return "not_ready"
+                if ctx.charged is not None:
+                    self._charge(report, ctx.charged, wasted=True)
+                return "not_ready", ctx.not_ready
             except LevelViolationError as exc:
-                self._fail(node_id, token, exc, permanent=True)
+                self._fail(node_id, token, exc, permanent=True, measured=ctx.charged)
                 released = True
-                self._charge(report, reg.cost, wasted=True, failed=True)
+                self._charge(report, spent(), wasted=True, failed=True)
                 raise
             except Exception as exc:
-                self._fail(node_id, token, exc, permanent=False)
+                self._fail(node_id, token, exc, permanent=False, measured=ctx.charged)
                 released = True
-                self._charge(report, reg.cost, wasted=True, failed=True)
-                return "failed"
+                self._charge(report, spent(), wasted=True, failed=True)
+                return "failed", set()
             try:
                 outcome = self._commit(row, reg, ctx, token, text)
             except LeaseLostError:
-                self._charge(report, reg.cost, wasted=True, conflict=True)
-                return "lease_lost"
+                self._charge(report, spent(), wasted=True, conflict=True)
+                return "lease_lost", set()
             released = True
             if outcome == "conflict":
-                self._charge(report, reg.cost, wasted=True, conflict=True)
-                return "conflict"
-            self._charge(report, reg.cost)
+                self._charge(report, spent(), wasted=True, conflict=True)
+                return "conflict", set()
+            self._charge(report, spent())
             report.jobs += 1
             if outcome == "cutoff":
                 report.cutoffs += 1
             else:
                 report.write_amplification += 1
-            return outcome
+            return outcome, set()
         finally:
             if not released:
                 self._release(node_id, token)
@@ -414,7 +515,7 @@ class Engine:
                 raise LeaseLostError(f"lease for node {node_id} was lost")
             db.execute("DELETE FROM leases WHERE node_id=?", (node_id,))
             current = db.execute(
-                "SELECT code_version, value_hash FROM nodes WHERE node_id=?", (node_id,)
+                "SELECT code_version, value_hash, keywords FROM nodes WHERE node_id=?", (node_id,)
             ).fetchone()
             observed = ctx.observed_list()
             if current["code_version"] != reg.version or not graph.deps_match(db, observed):
@@ -431,19 +532,29 @@ class Engine:
             db.execute(
                 "UPDATE nodes SET state='valid', value=?, value_hash=?, verified_revision=?,"
                 " changed_revision=CASE WHEN ? THEN ? ELSE changed_revision END,"
-                " dirty_since=NULL, attempts=0, last_error=NULL WHERE node_id=?",
-                (text, new_hash, rev, changed, rev, node_id),
+                " dirty_since=NULL, attempts=0, last_error=NULL,"
+                " measured_cost=COALESCE(?, measured_cost) WHERE node_id=?",
+                (text, new_hash, rev, changed, rev, ctx.charged, node_id),
             )
             if changed:
                 index.upsert(
                     db,
                     "node",
                     node_id,
-                    reg.index_text(row["kind"], row["node_key"], json.loads(text)),
+                    reg.index_text(
+                        row["kind"], row["node_key"], current["keywords"], json.loads(text)
+                    ),
                 )
             return "computed" if changed else "cutoff"
 
-    def _fail(self, node_id: int, token: str, exc: Exception, permanent: bool) -> None:
+    def _fail(
+        self,
+        node_id: int,
+        token: str,
+        exc: Exception,
+        permanent: bool,
+        measured: float | None = None,
+    ) -> None:
         db = self.store.db
         with self.store.write():
             db.execute("DELETE FROM leases WHERE node_id=? AND token=?", (node_id, token))
@@ -452,6 +563,7 @@ class Engine:
             exhausted = permanent or attempts >= self.max_attempts
             db.execute(
                 "UPDATE nodes SET attempts=?, last_error=?,"
-                " state=CASE WHEN ? THEN 'failed' ELSE state END WHERE node_id=?",
-                (attempts, f"{type(exc).__name__}: {exc}"[:500], exhausted, node_id),
+                " state=CASE WHEN ? THEN 'failed' ELSE state END,"
+                " measured_cost=COALESCE(?, measured_cost) WHERE node_id=?",
+                (attempts, f"{type(exc).__name__}: {exc}"[:500], exhausted, measured, node_id),
             )

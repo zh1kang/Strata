@@ -13,6 +13,7 @@ from .extraction import (
     build_extraction_request,
     extract_and_assert,
     extract_facts,
+    extraction_writes,
     parse_extraction,
 )
 from .fake import FakeModel
@@ -33,5 +34,6 @@ __all__ = [
     "build_extraction_request",
     "extract_and_assert",
     "extract_facts",
+    "extraction_writes",
     "parse_extraction",
 ]

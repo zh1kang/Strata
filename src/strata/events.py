@@ -5,16 +5,12 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Iterable
-from typing import Any
+from datetime import datetime
 
-from . import index
+from . import graph, index
 from .errors import ConflictError, NotFoundError
 from .store import Store, digest, encode
 from .types import Event, IngestResult
-
-
-def event_text(kind: str, payload: dict[str, Any]) -> str:
-    return f"{kind} {index.flatten(payload)}"
 
 
 def ingest(store: Store, session_id: str, events: Iterable[Event]) -> IngestResult:
@@ -23,7 +19,7 @@ def ingest(store: Store, session_id: str, events: Iterable[Event]) -> IngestResu
     Re-delivering an event with the same key and identical content is a no-op.
     The same key with different content is rejected: events are immutable.
     """
-    prepared: list[tuple[Event, str, str]] = []
+    prepared: list[tuple[Event, str, str, str | None]] = []
     seen: dict[str, str] = {}
     for event in events:
         if not event.key or not event.kind or not session_id:
@@ -35,15 +31,17 @@ def ingest(store: Store, session_id: str, events: Iterable[Event]) -> IngestResu
         if not isinstance(event.payload, dict):
             raise ValueError("event payload must be a dict")
         payload = encode(event.payload)
-        content = digest(f"{event.kind}\n{payload}")
+        at = normalise_time(event.at)
+        # Undated events keep the hash they had before dates existed.
+        content = digest(f"{event.kind}\n{payload}" + ("" if at is None else f"\n@{at}"))
         if seen.setdefault(event.key, content) != content:
             raise ConflictError(f"event {event.key!r} appears twice with different content")
-        prepared.append((event, payload, content))
+        prepared.append((event, payload, content, at))
 
     inserted = duplicates = 0
     with store.write() as txn:
         db = store.db
-        for event, payload, content in prepared:
+        for event, payload, content, at in prepared:
             existing = db.execute(
                 "SELECT content_hash FROM events WHERE event_key=?", (event.key,)
             ).fetchone()
@@ -55,17 +53,42 @@ def ingest(store: Store, session_id: str, events: Iterable[Event]) -> IngestResu
                 duplicates += 1
                 continue
             seq = db.execute(
-                "INSERT INTO events(event_key, session_id, kind, payload, content_hash, revision)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (event.key, session_id, event.kind, payload, content, txn.revision),
+                "INSERT INTO events(event_key, session_id, kind, payload, content_hash, revision,"
+                " occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (event.key, session_id, event.kind, payload, content, txn.revision, at),
             ).lastrowid
-            index.upsert(db, "event", int(seq or 0), event_text(event.kind, event.payload))
+            index.upsert(db, "event", int(seq or 0), index.event_text(event.kind, event.payload))
             inserted += 1
+        if inserted:
+            db.execute(
+                "INSERT INTO sessions(session_id, changed_revision) VALUES (?, ?)"
+                " ON CONFLICT(session_id) DO UPDATE SET changed_revision=excluded.changed_revision",
+                (session_id, txn.revision),
+            )
+            graph.invalidate_for_session(db, txn.revision, session_id)
     return IngestResult(inserted, duplicates)
 
 
+def normalise_time(at: str | None) -> str | None:
+    """Validate an ISO 8601 date or datetime and return it in canonical form."""
+    if at is None:
+        return None
+    if not isinstance(at, str):
+        raise ValueError("event time must be an ISO 8601 string")
+    try:
+        return datetime.fromisoformat(at).isoformat()
+    except ValueError as exc:
+        raise ValueError(f"event time {at!r} is not ISO 8601") from exc
+
+
 def _row_to_event(row: sqlite3.Row) -> Event:
-    return Event(row["event_key"], row["session_id"], row["kind"], json.loads(row["payload"]))
+    return Event(
+        row["event_key"],
+        row["session_id"],
+        row["kind"],
+        json.loads(row["payload"]),
+        row["occurred_at"],
+    )
 
 
 def get(store: Store, key: str) -> Event:

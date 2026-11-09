@@ -35,10 +35,13 @@ class Policy(StrEnum):
 
 @dataclass(frozen=True)
 class Event:
+    """One immutable observation. ``at`` is when it happened (ISO 8601), if known."""
+
     key: str
     session_id: str
     kind: str
     payload: dict[str, Any]
+    at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,21 @@ class FactWrite:
     ``expected_version`` is a compare-and-set guard on the slot head:
     ``None`` skips the check, ``0`` requires that the slot has no versions yet,
     and any other value must equal the current head version id.
+
+    ``mode`` says how ``value`` combines with the current one:
+
+    * ``"set"`` replaces it.
+    * ``"add"`` treats the slot as a set: the new value is the current list plus
+      the given item(s) not already in it (a scalar current value counts as a
+      one-item list). Adding items already present changes nothing.
+    * ``"remove"`` deletes the given item(s) from the current list; on a missing
+      or retracted slot it writes nothing.
+    * ``"retract"`` retracts the slot (``value`` is ignored); on a missing or
+      already retracted slot it writes nothing.
+
+    ``add`` and ``remove`` read the head inside the write transaction, so
+    concurrent additions to one slot never lose an item. A write that writes
+    nothing reports the current head version id (``0`` if there is none).
     """
 
     subject: str
@@ -61,6 +79,7 @@ class FactWrite:
     value: Any
     source_key: str
     expected_version: int | None = None
+    mode: str = "set"
 
 
 @dataclass(frozen=True)
@@ -72,11 +91,17 @@ class Fact:
     op: str  # "assert" | "retract"
     source_event: str
     revision: int
+    at: str | None = None  # when the source event happened, if known
 
 
 @dataclass(frozen=True)
 class Budget:
-    """Maintenance budget in abstract cost units (the sum of node ``cost``)."""
+    """Maintenance budget in cost units.
+
+    A node costs what its derivation charged on its last run (``Context.charge``),
+    or its declared ``cost`` if it never charged. A measured cost is only known
+    once a run finishes, so a run can overshoot by one job's misestimate.
+    """
 
     cost: float
     max_jobs: int | None = None
@@ -101,6 +126,7 @@ class RecallItem:
     score: float
     provenance: tuple[str, ...] = ()
     value: Any = None
+    at: str | None = None  # date of the event (or of a fact's source event), if known
 
 
 @dataclass(frozen=True)
@@ -138,11 +164,13 @@ class NodeInfo:
     attempts: int
     last_error: str | None
     access_count: int
+    measured_cost: float | None = None  # last cost charged with ``Context.charge``
+    keywords: str = ""  # static search text given to ``define``
 
 
 @dataclass(frozen=True)
 class Dependency:
-    kind: str  # "slot" | "subject" | "node"
+    kind: str  # "slot" | "subject" | "node" | "session"
     ref: str
     observed_revision: int
 

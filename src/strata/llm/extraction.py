@@ -18,6 +18,7 @@ from typing import Any
 from ..errors import ExtractionError
 from ..index import flatten
 from ..memory import Memory
+from ..profiles import TOPIC_MEMBERS, topic_subject
 from ..store import encode
 from ..types import Event, FactWrite
 from .model import Model, ModelRequest
@@ -25,11 +26,15 @@ from .model import Model, ModelRequest
 MAX_NAME_LENGTH = 200
 MAX_VALUE_LENGTH = 10_000
 _FENCE = re.compile(r"\A```(?:json)?[ \t]*\n(.*)\n```\Z", re.DOTALL)
-_FACT_KEYS = {"subject", "attribute", "value", "evidence", "confidence"}
+_FACT_KEYS = {"subject", "attribute", "value", "evidence", "confidence", "op", "topic"}
+OPS = ("set", "add", "remove", "retract")
 _SYSTEM = (
     "Extract durable facts from the event. Reply with a single JSON object only: "
     '{"facts": [{"subject": str, "attribute": str, "value": <json, not null>, '
+    '"op": "set" | "add" | "remove" | "retract", "topic": <short topic name>, '
     '"evidence": <exact quote from the event>, "confidence": <number 0..1>}]}. '
+    '"set" replaces the attribute, "add" adds one item to a collection (e.g. another '
+    'book read), "remove" deletes an item, "retract" means it is no longer true. '
     'Use {"facts": []} when there are none.'
 )
 
@@ -41,6 +46,8 @@ class ExtractedFact:
     value: Any
     evidence: str | None
     confidence: float
+    op: str = "set"  # one of OPS: how the value combines with the slot's current value
+    topic: str | None = None  # what the fact is about, for topic-scoped derived nodes
 
 
 @dataclass(frozen=True)
@@ -116,13 +123,19 @@ def parse_extraction(
         unknown = set(raw) - _FACT_KEYS
         if unknown:
             raise ExtractionError(f"fact {position}: unknown field(s) {sorted(unknown)}")
-        for required in ("subject", "attribute", "value"):
+        op = raw.get("op", "set")
+        if op not in OPS:
+            raise ExtractionError(f"fact {position}: op must be one of {list(OPS)}")
+        for required in (
+            ("subject", "attribute") if op == "retract" else ("subject", "attribute", "value")
+        ):
             if required not in raw:
                 raise ExtractionError(f"fact {position}: missing {required}")
         subject = _name(raw["subject"], "subject", position)
         attribute = _name(raw["attribute"], "attribute", position)
-        value = raw["value"]
-        if value is None:
+        topic = None if raw.get("topic") is None else _name(raw["topic"], "topic", position)
+        value = raw.get("value")
+        if value is None and op != "retract":
             raise ExtractionError(f"fact {position}: value must not be null")
         if len(encode(value)) > MAX_VALUE_LENGTH:
             raise ExtractionError(f"fact {position}: value is too large")
@@ -138,7 +151,8 @@ def parse_extraction(
             raise ExtractionError(f"fact {position}: evidence is required")
         if evidence is not None and haystack is not None and _normalise(evidence) not in haystack:
             raise ExtractionError(f"fact {position}: evidence is not present in the source event")
-        encoded = encode(value)
+        # Items added to (or removed from) one collection may differ; replacements may not.
+        encoded = encode([op, value]) if op in ("set", "retract") else f"{op} items"
         if seen.setdefault((subject, attribute), encoded) != encoded:
             raise ExtractionError(
                 f"fact {position}: conflicting values for {subject}.{attribute} in one response"
@@ -146,8 +160,12 @@ def parse_extraction(
         if confidence < min_confidence:
             dropped += 1
             continue
-        fact = ExtractedFact(subject, attribute, value, evidence, float(confidence))
-        if not any(f.subject == subject and f.attribute == attribute for f in kept):
+        fact = ExtractedFact(subject, attribute, value, evidence, float(confidence), op, topic)
+        if not any(
+            (f.subject, f.attribute, encode(f.value)) == (subject, attribute, encode(value))
+            or (f.subject == subject and f.attribute == attribute and op in ("set", "retract"))
+            for f in kept
+        ):
             kept.append(fact)
     return ExtractionResult(tuple(kept), dropped)
 
@@ -175,9 +193,28 @@ def extract_facts(
     )
 
 
+def extraction_writes(event_key: str, result: ExtractionResult) -> list[FactWrite]:
+    """Fact writes for an extraction, including topic membership.
+
+    A fact with a topic also adds ``[subject, attribute]`` to the set-valued slot
+    ``_topic:<topic>.members``, so a topic node (:func:`strata.profiles.define_topic`)
+    reads exactly the slots filed under it and is invalidated when one changes or a
+    new one joins.
+    """
+    writes: list[FactWrite] = []
+    for f in result.facts:
+        writes.append(FactWrite(f.subject, f.attribute, f.value, event_key, mode=f.op))
+        if f.topic is not None and f.op != "retract":
+            members = [[f.subject, f.attribute]]  # one item: a list value adds each element
+            writes.append(
+                FactWrite(topic_subject(f.topic), TOPIC_MEMBERS, members, event_key, mode="add")
+            )
+    return writes
+
+
 def apply_extraction(memory: Memory, event_key: str, result: ExtractionResult) -> list[int]:
-    """Assert all extracted facts atomically with ``event_key`` as their source."""
-    writes = [FactWrite(f.subject, f.attribute, f.value, event_key) for f in result.facts]
+    """Write all extracted facts atomically with ``event_key`` as their source."""
+    writes = extraction_writes(event_key, result)
     return memory.assert_facts(writes) if writes else []
 
 

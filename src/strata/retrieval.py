@@ -13,6 +13,8 @@ Safety rules:
   Facts say what is current; their source events keep the detail and the date.
 * ``lazy_budget`` lets a query repair the dirty nodes it needs on demand, within
   that budget, before deciding what to withhold.
+* ``since`` / ``until`` keep only events, and facts whose source event, dated
+  inside ``[since, until)``. Derived nodes are not filtered.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from typing import Any
 
 from . import graph, index
 from .errors import NotFoundError
+from .events import normalise_time
 from .maintenance import Engine
 from .store import Store
 from .types import Budget, NodeRead, RecallItem, RecallResult
@@ -38,7 +41,8 @@ class Retriever:
 
     def _fact_item(self, slot_id: int, score: float) -> RecallItem | None:
         row = self.store.db.execute(
-            "SELECT s.subject, s.attribute, v.version_id, v.value, e.event_key FROM slots s"
+            "SELECT s.subject, s.attribute, v.version_id, v.value, e.event_key, e.occurred_at"
+            " FROM slots s"
             " JOIN slot_heads h ON h.slot_id = s.slot_id"
             " JOIN fact_versions v ON v.version_id = h.version_id"
             " JOIN events e ON e.seq = v.source_seq"
@@ -59,6 +63,7 @@ class Retriever:
                 f"event:{row['event_key']}",
             ),
             value,
+            row["occurred_at"],
         )
 
     def _node_item(self, row: sqlite3.Row, score: float, status: str) -> RecallItem:
@@ -95,13 +100,16 @@ class Retriever:
             score,
             (f"event:{row['event_key']}",),
             payload,
+            row["occurred_at"],
         )
 
-    def _raw_items(self, query: str, limit: int) -> list[RecallItem]:
+    def _raw_items(
+        self, query: str, limit: int, since: str | None = None, until: str | None = None
+    ) -> list[RecallItem]:
         items = []
-        for _, seq, score in index.search(self.store.db, query, ("event",), limit):
+        for _, seq, score in index.search(self.store.db, query, ("event",), limit, since, until):
             row = self.store.db.execute(
-                "SELECT event_key, kind, payload FROM events WHERE seq=?", (seq,)
+                "SELECT event_key, kind, payload, occurred_at FROM events WHERE seq=?", (seq,)
             ).fetchone()
             items.append(self._event_item(row, score))
         return items
@@ -116,7 +124,7 @@ class Retriever:
                 if not ref.startswith("event:"):
                     continue
                 row = self.store.db.execute(
-                    "SELECT event_key, kind, payload FROM events WHERE event_key=?",
+                    "SELECT event_key, kind, payload, occurred_at FROM events WHERE event_key=?",
                     (ref.removeprefix("event:"),),
                 ).fetchone()
                 if row is not None:
@@ -136,9 +144,11 @@ class Retriever:
                     merged.append(item)
         return merged
 
-    def search_events(self, query: str, limit: int = 10) -> list[RecallItem]:
+    def search_events(
+        self, query: str, limit: int = 10, *, since: str | None = None, until: str | None = None
+    ) -> list[RecallItem]:
         """Plain append-only search over raw events (no derived memory involved)."""
-        return self._raw_items(query, limit)
+        return self._raw_items(query, limit, normalise_time(since), normalise_time(until))
 
     # ------------------------------------------------------------------ recall
 
@@ -152,11 +162,23 @@ class Retriever:
         lazy_budget: float | None = None,
         record_access: bool = True,
         events: int = 0,
+        since: str | None = None,
+        until: str | None = None,
     ) -> RecallResult:
         if limit < 1:
             raise ValueError("limit must be at least 1")
         if events < 0:
             raise ValueError("events must be non-negative")
+        since, until = normalise_time(since), normalise_time(until)
+        windowed = since is not None or until is not None
+
+        def in_window(at: str | None) -> bool:
+            if not windowed:
+                return True
+            return (
+                at is not None and (since is None or at >= since) and (until is None or at < until)
+            )
+
         hits = index.search(self.store.db, query, ("fact", "node"), limit * 5)
         node_ids = [ref for kind, ref, _ in hits if kind == "node"]
 
@@ -175,7 +197,7 @@ class Retriever:
         for kind, ref, score in hits:
             if kind == "fact":
                 item = self._fact_item(ref, score)
-                if item is not None:
+                if item is not None and in_window(item.at):
                     current.append(item)
                 continue
             row = self._node_row(ref)
@@ -200,8 +222,9 @@ class Retriever:
         raw: list[RecallItem] = []
         quota = max(events, limit if use_fallback else 0)
         if quota:
-            sources = self._source_items(current) if events else []
-            raw = self._merge_events(sources, self._raw_items(query, quota), quota)
+            sources = [i for i in self._source_items(current) if in_window(i.at)] if events else []
+            searched = self._raw_items(query, quota, since, until)
+            raw = self._merge_events(sources, searched, quota)
             if raw:
                 warnings.append("raw event matches are unverified evidence, not current state")
             elif current:

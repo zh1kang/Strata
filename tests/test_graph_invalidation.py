@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from strata import Context, Memory, NodeState
+from strata import Context, Event, Memory, NodeState
 
 
 def states(mem: Memory) -> dict[str, str]:
@@ -211,3 +211,37 @@ def test_history_lists_value_changes_and_tracks_the_slot(mem: Memory) -> None:
     assert mem.node("timeline", "atlas").state == NodeState.STALE
     mem.maintain(10)
     assert [v for v, _ in mem.node("timeline", "atlas").value] == [1, 2, 3]
+
+
+def test_session_reads_are_invalidated_only_by_new_events_in_that_session(mem: Memory) -> None:
+    calls: Counter[str] = Counter()
+
+    def digest(ctx: Context) -> list[str]:
+        calls["digest"] += 1
+        return [e["payload"]["text"] for e in ctx.session("chat")]
+
+    mem.ingest("chat", [Event("c1", "chat", "message", {"text": "hi"}, "2024-01-02")])
+    mem.define("digest", "chat", 1, digest)
+    mem.maintain()
+    assert mem.node("digest", "chat").value == ["hi"]
+    assert [d.kind for d in mem.dependencies("digest", "chat")] == ["session"]
+    assert mem.explain("digest", "chat")["provenance"] == ["session:chat"]
+
+    mem.ingest("other", [Event("o1", "other", "message", {"text": "elsewhere"})])
+    mem.ingest("chat", [Event("c1", "chat", "message", {"text": "hi"}, "2024-01-02")])
+    assert mem.node("digest", "chat").state == NodeState.VALID  # other session, duplicate
+
+    mem.ingest("chat", [Event("c2", "chat", "message", {"text": "bye"})])
+    assert mem.node("digest", "chat").state == NodeState.STALE
+    mem.maintain()
+    assert mem.node("digest", "chat").value == ["hi", "bye"] and calls["digest"] == 2
+
+
+def test_history_entries_carry_the_source_event_date(mem: Memory) -> None:
+    mem.ingest("d", [Event("d1", "d", "message", {"text": "x"}, "2023-05-01")])
+    mem.assert_fact("user", "job", "nurse", "d1")
+    mem.define("h", "job", 1, lambda c: c.history("user", "job"))
+    mem.maintain()
+    assert mem.node("h", "job").value == [
+        {"op": "assert", "value": "nurse", "source": "d1", "at": "2023-05-01T00:00:00"}
+    ]

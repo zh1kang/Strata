@@ -1,6 +1,6 @@
 """SQLite schema. Bump SCHEMA_VERSION on any incompatible change."""
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -17,9 +17,16 @@ CREATE TABLE IF NOT EXISTS events (
   kind TEXT NOT NULL,
   payload TEXT NOT NULL CHECK (json_valid(payload)),
   content_hash TEXT NOT NULL,
-  revision INTEGER NOT NULL REFERENCES revisions(revision)
+  revision INTEGER NOT NULL REFERENCES revisions(revision),
+  occurred_at TEXT  -- when it happened, as supplied by the caller (ISO 8601); NULL if unknown
 );
 CREATE INDEX IF NOT EXISTS events_session ON events(session_id, seq);
+
+-- Revision of the latest event appended to each session (tracked session reads).
+CREATE TABLE IF NOT EXISTS sessions (
+  session_id TEXT PRIMARY KEY,
+  changed_revision INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS slots (
   slot_id INTEGER PRIMARY KEY,
@@ -68,14 +75,17 @@ CREATE TABLE IF NOT EXISTS nodes (
   attempts INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
   access_count INTEGER NOT NULL DEFAULT 0,
+  measured_cost REAL CHECK (measured_cost IS NULL OR measured_cost >= 0),
+  keywords TEXT NOT NULL DEFAULT '',  -- static search text, indexed even before the first build
   UNIQUE (kind, node_key)
 );
 CREATE INDEX IF NOT EXISTS nodes_state ON nodes(state);
 
 -- Observed inputs of each node.  Unused reference columns hold '' / 0.
+-- A 'session' dependency stores the session id in dep_subject.
 CREATE TABLE IF NOT EXISTS node_deps (
   node_id INTEGER NOT NULL REFERENCES nodes(node_id),
-  dep_kind TEXT NOT NULL CHECK (dep_kind IN ('slot','subject','node')),
+  dep_kind TEXT NOT NULL CHECK (dep_kind IN ('slot','subject','node','session')),
   dep_subject TEXT NOT NULL DEFAULT '',
   dep_attribute TEXT NOT NULL DEFAULT '',
   dep_node INTEGER NOT NULL DEFAULT 0,
@@ -97,7 +107,7 @@ CREATE TABLE IF NOT EXISTS search_docs (
   ref INTEGER NOT NULL,
   UNIQUE (doc_kind, ref)
 );
-CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(text, tokenize='unicode61');
+CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(text, tokenize='porter unicode61');
 
 CREATE TRIGGER IF NOT EXISTS immutable_events_update BEFORE UPDATE ON events
 BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
@@ -107,4 +117,39 @@ CREATE TRIGGER IF NOT EXISTS immutable_facts_update BEFORE UPDATE ON fact_versio
 BEGIN SELECT RAISE(ABORT, 'facts are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS immutable_facts_delete BEFORE DELETE ON fact_versions
 BEGIN SELECT RAISE(ABORT, 'facts are append-only'); END;
+"""
+
+# Upgrade of a version-2 database, run in one transaction. Event rows are never
+# rewritten (adding a column is not an update); the search index is copied into a
+# stemming tokenizer and the dependency table is rebuilt to accept session deps.
+MIGRATE_2_TO_3 = """
+ALTER TABLE events ADD COLUMN occurred_at TEXT;
+ALTER TABLE nodes ADD COLUMN measured_cost REAL
+  CHECK (measured_cost IS NULL OR measured_cost >= 0);
+ALTER TABLE nodes ADD COLUMN keywords TEXT NOT NULL DEFAULT '';
+CREATE TABLE sessions (
+  session_id TEXT PRIMARY KEY,
+  changed_revision INTEGER NOT NULL
+);
+INSERT INTO sessions(session_id, changed_revision)
+  SELECT session_id, max(revision) FROM events GROUP BY session_id;
+CREATE TABLE node_deps_v3 (
+  node_id INTEGER NOT NULL REFERENCES nodes(node_id),
+  dep_kind TEXT NOT NULL CHECK (dep_kind IN ('slot','subject','node','session')),
+  dep_subject TEXT NOT NULL DEFAULT '',
+  dep_attribute TEXT NOT NULL DEFAULT '',
+  dep_node INTEGER NOT NULL DEFAULT 0,
+  observed_revision INTEGER NOT NULL,
+  PRIMARY KEY (node_id, dep_kind, dep_subject, dep_attribute, dep_node)
+);
+INSERT INTO node_deps_v3 SELECT * FROM node_deps;
+DROP TABLE node_deps;
+ALTER TABLE node_deps_v3 RENAME TO node_deps;
+CREATE INDEX node_deps_slot ON node_deps(dep_kind, dep_subject, dep_attribute);
+CREATE INDEX node_deps_node ON node_deps(dep_kind, dep_node);
+CREATE VIRTUAL TABLE search_v3 USING fts5(text, tokenize='porter unicode61');
+INSERT INTO search_v3(rowid, text) SELECT rowid, text FROM search;
+DROP TABLE search;
+ALTER TABLE search_v3 RENAME TO search;
+UPDATE meta SET value='3' WHERE key='schema_version';
 """

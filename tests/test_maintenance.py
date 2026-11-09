@@ -171,10 +171,8 @@ def test_swallowed_not_ready_signal_cannot_commit_a_dependency_free_result(mem: 
 
     mem.define("high", "k", 2, high)
     report = mem.engine.maintain(10, only=[mem.engine.node_id("high", "k")])
-    assert report.jobs == 0 and report.not_ready == 1
-    assert state(mem, "high", "k") == NodeState.PENDING
-
-    mem.maintain(10)  # low first, then high with a recorded dependency
+    # The swallowed signal is re-raised; the restricted run then builds the input it lacked.
+    assert report.outcomes == ["high:k:not_ready", "low:k:computed", "high:k:computed"]
     assert mem.node("high", "k").value == {"low": 1}
     mem.assert_fact("k", "v", 2, "e1")
     assert mem.read_node("high", "k").status == "unavailable"
@@ -338,3 +336,37 @@ def test_node_scheduled_before_its_dependency_is_deferred_not_failed(mem: Memory
     assert report.cost == 2.0  # the deferral itself was free
     assert mem.node("reader", "a").value == 2
     assert mem.node("reader", "a").attempts == 0
+
+
+def test_measured_cost_replaces_the_declared_cost(mem: Memory) -> None:
+    mem.assert_fact("a", "v", 1, "e0")
+    mem.assert_fact("b", "v", 1, "e0")
+
+    def costly(ctx: Context) -> object:
+        ctx.charge(3)
+        ctx.charge(2.5)
+        return ctx.slot(ctx.key, "v")
+
+    mem.define("n", "a", 1, costly, cost=1.0)
+    mem.define("n", "b", 1, lambda c: c.slot("b", "v"), cost=2.0)
+    report = mem.maintain(None, Policy.FIFO)
+    assert report.cost == 7.5  # 5.5 measured + 2 declared
+    assert mem.node("n", "a").measured_cost == 5.5 and mem.node("n", "b").measured_cost is None
+
+    mem.assert_fact("a", "v", 2, "e1")
+    mem.assert_fact("b", "v", 2, "e1")
+    report = mem.maintain(Budget(5))  # priority now prefers the cheaper b; a no longer fits
+    assert report.outcomes == ["n:b:computed", "n:a:skipped_budget"]
+
+
+def test_invalid_charge_fails_the_job(mem: Memory) -> None:
+    mem.assert_fact("a", "v", 1, "e0")
+
+    def bad(ctx: Context) -> object:
+        ctx.charge(-1)
+        return 1
+
+    mem.define("n", "a", 1, bad)
+    report = mem.maintain(10)
+    assert report.failures == 1
+    assert "ValueError" in (mem.node("n", "a").last_error or "")

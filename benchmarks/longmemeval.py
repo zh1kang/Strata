@@ -33,8 +33,9 @@ import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import zip_longest
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -42,9 +43,9 @@ from lme_models import BackendError, CachedBackend, ResponseStore, make_backend
 
 from strata import Budget, Context, Event, FactWrite, Memory, Policy
 from strata.errors import ExtractionError, StrataError
-from strata.index import flatten
+from strata.index import flatten, internal, snippet
 from strata.llm import ModelRequest, parse_extraction
-from strata.profiles import define_profile
+from strata.profiles import TOPIC_KIND, TOPIC_MEMBERS, define_topic, topic_subject
 from strata.types import MaintenanceReport, RecallItem
 
 HERE = Path(__file__).resolve().parent
@@ -60,18 +61,33 @@ JUDGE2_MODEL = "cursor:composer-2.5-fast"  # secondary judge, used for agreement
 GROUP_SESSIONS = 8  # sessions per extraction call
 GROUP_CHARS = 30000
 
-# Context conditions, identical for every system and answer model. raw_search gets the top
-# CONTEXT_ITEMS events; Strata systems get up to CONTEXT_ITEMS current items (facts, profiles,
-# timelines) followed by up to CONTEXT_ITEMS events (sources of those facts interleaved with
-# event search hits). Every system's context is cut at the same CONTEXT_CHARS.
+# Context conditions, identical for every system and answer model. Every context is cut at
+# CONTEXT_CHARS. raw_search is the plain baseline: the top CONTEXT_ITEMS events, each cut at
+# ITEM_CHARS. Every other system renders each item as a query-centred snippet of at most
+# SNIPPET_CHARS and adds events from a time window when the question names one; Strata systems
+# get up to CONTEXT_ITEMS current items (facts, topics, timelines, digests) followed by up to
+# EVENT_ITEMS events (sources of those facts interleaved with event search hits), and
+# raw_search_tuned gets only events, so the two differ only in the fact memory.
 CONTEXT_ITEMS = 10
+EVENT_ITEMS = 20
 ITEM_CHARS = 3000
+SNIPPET_CHARS = 1500
 CONTEXT_CHARS = 24000
+WINDOW_EVENTS = 10  # events searched inside a question's time window
 TIMELINE_KIND = "timeline"
+DIGEST_KIND = "digest"
 # Strata maintenance configuration (fixed before running; see README "Benchmark").
 BACKGROUND_BUDGET = 1.0  # cost units per ingested session for fifo/priority variants
 LAZY_BUDGET = 8.0  # cost units per query for the lazy variant
+# LLM-written digests (one per topic) are charged their real token usage (Context.charge), so
+# their budgets are in tokens. Cheap derived nodes keep their declared cost of 1 unit.
+DIGEST_MODEL = EXTRACTION_MODEL
+DIGEST_DECLARED_COST = 1500.0  # token estimate until a digest has been built once
+DIGEST_BG_BUDGET = 1500.0  # tokens per ingested session
+DIGEST_LAZY_BUDGET = 6000.0  # tokens per query
+DIGEST_QUESTIONS = 40  # digest systems run on this stratified prefix of the questions
 SLOT_LIST_LIMIT = 120
+TOPIC_LIST_LIMIT = 40
 SESSION_TEXT_LIMIT = 16000
 
 
@@ -83,15 +99,16 @@ class SystemSpec:
     policy: Policy = Policy.PRIORITY
     lazy_budget: float | None = None
     include_stale: bool = False  # stale_control serves withheld nodes as if they were current
-    nodes: bool = True  # define profile and timeline nodes over the facts
-    raw_events: int = CONTEXT_ITEMS  # raw_search only: events retrieved before the char cap
+    nodes: bool = True  # define topic and timeline nodes over the facts
+    raw_events: int = CONTEXT_ITEMS  # raw systems: events retrieved before the char cap
+    tuned: bool = True  # snippets and time-window events
+    digests: bool = False  # LLM-written digest per topic (subset of questions only)
 
 
 SYSTEMS: tuple[SystemSpec, ...] = (
-    SystemSpec("raw_search", facts=False),
-    # Ablations: raw search filled to the same character cap Strata contexts use, and Strata
-    # facts plus source events without any derived nodes.
-    SystemSpec("raw_search_24k", facts=False, raw_events=3 * CONTEXT_ITEMS),
+    SystemSpec("raw_search", facts=False, tuned=False),
+    # Matched baseline: same snippets, time windows and character cap as Strata, no facts.
+    SystemSpec("raw_search_tuned", facts=False, raw_events=3 * CONTEXT_ITEMS),
     SystemSpec("strata_no_nodes", facts=True, nodes=False),
     SystemSpec("strata_eager", facts=True, bg_budget=math.inf),
     SystemSpec("strata_priority", facts=True, bg_budget=BACKGROUND_BUDGET),
@@ -103,9 +120,21 @@ SYSTEMS: tuple[SystemSpec, ...] = (
         policy=Policy.FIFO,
         include_stale=True,
     ),
+    SystemSpec("digest_eager", facts=True, bg_budget=math.inf, digests=True),
+    SystemSpec("digest_priority", facts=True, bg_budget=DIGEST_BG_BUDGET, digests=True),
+    SystemSpec("digest_lazy", facts=True, lazy_budget=DIGEST_LAZY_BUDGET, digests=True),
+    SystemSpec(
+        "digest_stale",
+        facts=True,
+        bg_budget=DIGEST_BG_BUDGET,
+        policy=Policy.FIFO,
+        include_stale=True,
+        digests=True,
+    ),
 )
 SYSTEM_NAMES = tuple(s.name for s in SYSTEMS)
-BASELINES = ("raw_search", "raw_search_24k")
+SPECS = {s.name: s for s in SYSTEMS}
+BASELINES = ("raw_search", "raw_search_tuned")
 
 # ---------------------------------------------------------------------------- data
 
@@ -192,29 +221,45 @@ EXTRACT_SYSTEM = (
     "only) so they can be stored in a versioned fact memory. You are given several sessions in "
     "date order. Reply with a single JSON object only, no prose: "
     '{"sessions": {"<session number>": {"facts": [{"subject": str, "attribute": str, '
-    '"value": <string, number, boolean or list; never null>, "evidence": <exact quote copied '
-    'verbatim from that session\'s user messages>, "confidence": <number 0..1>}]}}}. '
+    '"value": <string, number, boolean or list; never null>, "op": "set" | "add" | "remove" | '
+    '"retract", "topic": str, "evidence": <exact quote copied verbatim from that session\'s user '
+    'messages>, "confidence": <number 0..1>}]}}}. '
     'Include every session number; use {"facts": []} when a session has none.\n'
     'Rules: subject is "user" for facts about the user, otherwise the lowercase name or role of '
-    'the other person or entity (e.g. "sister"). attribute is a short snake_case name for a '
-    "property whose value can change over time (e.g. current_job_title, "
-    "personal_best_5k_time, korean_restaurants_tried_count). If an attribute listed under "
-    "EXISTING SLOTS means the same thing, reuse its exact name; a newly stated value then "
-    "replaces the old one. Within one session give each attribute at most once. Include only "
-    "things the user says about their own life: possessions, plans, preferences, counts, dates, "
-    "events, relationships, numbers. Skip generic questions, requests for help, hypotheticals, "
-    "and anything the assistant said. Values must be self-contained (include units and dates). "
-    "Copy evidence exactly, character for character."
+    'the other person or entity (e.g. "sister"). attribute is a short snake_case name.\n'
+    'op "set": a single-valued property whose new value replaces the old one (e.g. '
+    "current_job_title, home_city, personal_best_5k_time). If an attribute listed under "
+    "EXISTING SLOTS means the same thing, reuse its exact name so the new value supersedes the "
+    "old one. Give each set attribute at most once per session.\n"
+    'op "add": one more item of something the user accumulates or repeats (e.g. books_read, '
+    "restaurants_tried, plants_owned, trips_taken, purchases, workouts). The value is that one "
+    "item, self-contained with any quantity, price and date mentioned (e.g. \"monstera plant, "
+    'bought 2023-05-20, $25"). Use one add per item instead of a running count. If the user '
+    "states a total explicitly, also record that total with op set.\n"
+    'op "remove": an item of such a collection is gone (sold, given away, finished, died); the '
+    'value is the item as it was added. op "retract": a stated property is no longer true.\n'
+    "topic: a short lowercase topic grouping related facts (e.g. fitness, pets, travel, work, "
+    "cooking, home, finance, health, family, hobbies); reuse a name from EXISTING TOPICS when "
+    "one fits.\n"
+    "Include only things the user says about their own life: possessions, plans, preferences, "
+    "counts, dates, events, relationships, numbers. Skip generic questions, requests for help, "
+    "hypotheticals, and anything the assistant said. Values must be self-contained: include "
+    "units, and turn relative dates (\"last week\", \"yesterday\") into dates using the session "
+    "date. Copy evidence exactly, character for character."
 )
 _FENCE = re.compile(r"\A```(?:json)?[ \t]*\n(.*)\n```\Z", re.DOTALL)
 
 
-def extract_prompt(group: list[tuple[int, Session]], slots: list[str]) -> str:
+def extract_prompt(group: list[tuple[int, Session]], slots: list[str], topics: list[str]) -> str:
     listed = ", ".join(slots[-SLOT_LIST_LIMIT:]) if slots else "none"
+    named = ", ".join(topics[-TOPIC_LIST_LIMIT:]) if topics else "none"
     blocks = [
         f"=== SESSION {number} (date {s.date}) ===\n{s.user_text}" for number, s in group
     ]
-    return f"EXISTING SLOTS (subject.attribute): {listed}\n\n" + "\n\n".join(blocks)
+    return (
+        f"EXISTING SLOTS (subject.attribute): {listed}\nEXISTING TOPICS: {named}\n\n"
+        + "\n\n".join(blocks)
+    )
 
 
 _SESSIONS_OBJECT = re.compile(r'\{\s*"sessions"')
@@ -280,6 +325,7 @@ def extract_question(q: dict[str, Any], sessions: list[Session], model: CachedBa
     if path.exists():
         return read_json(path)
     slots: dict[str, None] = {}
+    topics: dict[str, None] = {}
     entries: list[dict[str, Any]] = [
         {"sid": s.sid, "facts": [], "failed": False, "in": 0, "out": 0, "calls": 0}
         for s in sessions
@@ -289,7 +335,7 @@ def extract_question(q: dict[str, Any], sessions: list[Session], model: CachedBa
         pending = group
         error = ""
         for _attempt in range(2):
-            prompt = extract_prompt(pending, list(slots))
+            prompt = extract_prompt(pending, list(slots), list(topics))
             if error:
                 prompt += (
                     f"\n\nYour previous reply was rejected ({error}). "
@@ -325,12 +371,17 @@ def extract_question(q: dict[str, Any], sessions: list[Session], model: CachedBa
                         "subject": f.subject,
                         "attribute": f.attribute,
                         "value": f.value,
+                        "op": f.op,
+                        "topic": f.topic,
                         "evidence": f.evidence,
                     }
                 )
                 key = f"{f.subject}.{f.attribute}"
                 slots.pop(key, None)
                 slots[key] = None
+                if f.topic:
+                    topics.pop(f.topic.casefold(), None)
+                    topics[f.topic.casefold()] = None
     log = {"qid": q["question_id"], "sessions": entries}
     write_json(path, log)
     return log
@@ -359,6 +410,78 @@ def event_date(m: Memory, key: str) -> str | None:
         return None
 
 
+_NUMBER = {
+    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "few": 3, "couple": 2, "several": 4,
+}  # fmt: skip
+_UNIT_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
+_MONTHS = (
+    "january february march april may june july august september october november december"
+).split()
+_AGO = re.compile(r"\b(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|a few|a couple of)"
+                  r" (day|week|month|year)s? ago\b", re.I)  # fmt: skip
+_PAST = re.compile(r"\b(?:past|last) (?:(\d+|two|three|four|five|six|few|couple of|several) )?"
+                   r"(day|week|month|year)s?\b", re.I)  # fmt: skip
+_RECENT = re.compile(r"\b(yesterday|last weekend|last (?:monday|tuesday|wednesday|thursday|"
+                     r"friday|saturday|sunday))\b", re.I)  # fmt: skip
+_IN_MONTH = re.compile(  # capitalised, so "in may" (the verb) does not match
+    r"\b(?:[Ii]n|[Dd]uring|of|[Ee]arly|[Mm]id|[Ll]ate)[ -]("
+    + "|".join(m.capitalize() for m in _MONTHS)
+    + r")\b"
+)
+
+
+def _count(word: str | None) -> int:
+    if not word:
+        return 1
+    word = word.lower().removeprefix("a ").removesuffix(" of")
+    return int(word) if word.isdigit() else _NUMBER.get(word, 1)
+
+
+def time_window(question: str, question_date: str) -> tuple[str, str] | None:
+    """A generous date window for relative time phrases in the question, or ``None``.
+
+    Session dates are when something was *said*, which can trail when it happened, so windows
+    lean wide and their events are added next to (never instead of) the normal search hits.
+    """
+    now = parse_date(question_date)
+    day = timedelta(days=1)
+    if m := _AGO.search(question):
+        span = _count(m.group(1)) * _UNIT_DAYS[m.group(2).lower()] * day
+        slack = max(4 * day, span / 2)
+        start, end = now - span - slack, now - span + slack
+    elif m := _PAST.search(question):
+        start, end = now - _count(m.group(1)) * _UNIT_DAYS[m.group(2).lower()] * day * 1.5, now
+    elif _RECENT.search(question):
+        start, end = now - 16 * day, now
+    elif m := _IN_MONTH.search(question):
+        month = _MONTHS.index(m.group(1).lower()) + 1
+        year = now.year if month <= now.month else now.year - 1
+        start = datetime(year, month, 1)
+        end = datetime(year + month // 12, month % 12 + 1, 1) + 21 * day
+    else:
+        return None
+    return start.isoformat(), (end + day).isoformat()
+
+
+def interleave(first: list[RecallItem], second: list[RecallItem]) -> list[RecallItem]:
+    merged: list[RecallItem] = []
+    seen: set[str] = set()
+    for pair in zip_longest(first, second):
+        for item in pair:
+            if item is not None and item.key not in seen:
+                seen.add(item.key)
+                merged.append(item)
+    return merged
+
+
+def add_window_events(items: list[RecallItem], windowed: list[RecallItem]) -> list[RecallItem]:
+    """Keep current memory first; interleave windowed events with the other events."""
+    memory = [i for i in items if i.kind != "event"]
+    events = [i for i in items if i.kind == "event"]
+    return memory + interleave(windowed, events)
+
+
 def to_context_item(m: Memory, item: RecallItem) -> tuple[dict[str, str | None], list[str]]:
     events = [p.removeprefix("event:") for p in item.provenance if p.startswith("event:")]
     if item.kind == "event":
@@ -366,14 +489,19 @@ def to_context_item(m: Memory, item: RecallItem) -> tuple[dict[str, str | None],
         return {"date": payload.get("date"), "text": str(payload.get("text", item.text))}, events
     if item.kind == "fact":
         return {"date": event_date(m, events[0]) if events else None, "text": item.text}, events
-    return {"date": None, "text": f"{item.kind} of {item.key}: {item.text}"}, events
+    text = item.value if isinstance(item.value, str) else item.text
+    return {"date": None, "text": f"{item.kind} of {item.key}: {text}"}, events
 
 
-def render_context(items: list[dict[str, str | None]]) -> tuple[str, int]:
-    """The rendered context and how many items fit under CONTEXT_CHARS."""
+def render_context(items: list[dict[str, str | None]], query: str | None) -> tuple[str, int]:
+    """The rendered context and how many items fit under CONTEXT_CHARS.
+
+    With a query, each item is a query-centred snippet; without, its first ITEM_CHARS.
+    """
     parts, used = [], 0
     for i, it in enumerate(items, 1):
-        text = (it["text"] or "")[:ITEM_CHARS]
+        raw = it["text"] or ""
+        text = snippet(raw, query, SNIPPET_CHARS) if query is not None else raw[:ITEM_CHARS]
         header = f"Memory item {i}" + (f" (dated {it['date']})" if it["date"] else "")
         block = f"{header}:\n{text}"
         if used + len(block) > CONTEXT_CHARS:
@@ -407,10 +535,10 @@ def timeline_search_text(value: Any) -> str:
 
 
 def define_timelines(m: Memory, writes: list[FactWrite], defined: set[tuple[str, str]]) -> None:
-    """A timeline node per fact whose value has changed at least once."""
+    """A timeline node per single-valued fact whose value has changed at least once."""
     for w in writes:
         slot = (w.subject, w.attribute)
-        if slot in defined:
+        if slot in defined or w.mode != "set" or internal(w.subject):
             continue
         values = {json.dumps(f.value, sort_keys=True) for f in m.fact_history(*slot)}
         if len(values) >= 2:
@@ -424,77 +552,185 @@ def define_timelines(m: Memory, writes: list[FactWrite], defined: set[tuple[str,
             defined.add(slot)
 
 
+DIGEST_PROMPT = (
+    "Below is everything a user has told an assistant about the topic \"{topic}\", as dated "
+    "fact changes in chronological order. Write a compact digest of it for the assistant's "
+    "memory: a dated timeline of what happened, then the current state. Keep every name, "
+    "number, quantity, price and date; when something changed, say what it was before and what "
+    "it is now; when items accumulated, list them all and give their count. Plain text, no "
+    "preamble, at most 250 words.\n\n{facts}"
+)
+
+
+def make_digest(model: CachedBackend, ledger: Counter[str]) -> Callable[[Context], str]:
+    """An LLM-written digest of one topic, charged its real token usage."""
+
+    def digest(ctx: Context) -> str:
+        members = ctx.node(TOPIC_KIND, ctx.key)
+        lines = []
+        for name in sorted(members):
+            subject, attribute = name.rsplit(".", 1)
+            before: Any = None
+            for change in ctx.history(subject, attribute):
+                date = (change["at"] or "")[:10]
+                value = change["value"] if change["op"] == "assert" else None
+                if isinstance(value, list) and isinstance(before, list):
+                    # a collection: show what each change added or removed, not the whole list
+                    lines += [f"[{date}] {name} + {json.dumps(x, ensure_ascii=False)}"
+                              for x in value if x not in before]  # fmt: skip
+                    lines += [f"[{date}] {name} - {json.dumps(x, ensure_ascii=False)}"
+                              for x in before if x not in value]  # fmt: skip
+                else:
+                    shown = value if change["op"] == "assert" else "(no longer true)"
+                    lines.append(f"[{date}] {name} = {json.dumps(shown, ensure_ascii=False)}")
+                before = value
+        prompt = DIGEST_PROMPT.format(topic=ctx.key, facts="\n".join(lines) or "(nothing yet)")
+        rec = model.call(ModelRequest(prompt, temperature=0.0, max_tokens=600))
+        ctx.charge(rec.in_tokens + rec.out_tokens)
+        ledger["calls"] += 1
+        ledger["tokens"] += rec.in_tokens + rec.out_tokens
+        return rec.text.strip()
+
+    return digest
+
+
+def digest_search_text(value: Any) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def fact_writes(session: Session, facts: list[dict[str, Any]]) -> list[FactWrite]:
+    """Writes for one session's facts, each sourced to the round that holds its evidence."""
+    writes = []
+    for f in facts:
+        source = locate_source(session, f["evidence"])
+        op = f.get("op", "set")
+        writes.append(FactWrite(f["subject"], f["attribute"], f.get("value"), source, mode=op))
+        if f.get("topic") and op != "retract":
+            writes.append(
+                FactWrite(
+                    topic_subject(f["topic"]),
+                    TOPIC_MEMBERS,
+                    [[f["subject"], f["attribute"]]],
+                    source,
+                    mode="add",
+                )
+            )
+    return writes
+
+
+def digest_costs(m: Memory) -> tuple[float, int]:
+    """Sum of the latest measured token cost of every built digest, and how many there are."""
+    built = [n for n in m.nodes() if n.kind == DIGEST_KIND and n.measured_cost is not None]
+    return sum(n.measured_cost or 0.0 for n in built), len(built)
+
+
 def run_system(
-    q: dict[str, Any], sessions: list[Session], factlog: dict, spec: SystemSpec
+    q: dict[str, Any],
+    sessions: list[Session],
+    factlog: dict,
+    spec: SystemSpec,
+    digest_model: CachedBackend,
 ) -> dict[str, Any]:
     evidence_keys = {key for s in sessions for key, _, ha in s.rounds if ha}
     maintenance = MaintenanceReport()
     asserted = assert_failures = 0
+    rebuild_estimate = 0.0  # tokens a full rebuild of every built digest per session would cost
+    ledger: Counter[str] = Counter()  # digest model calls and tokens, however they ended
     with tempfile.TemporaryDirectory() as tmp, Memory.open(str(Path(tmp) / "m.db")) as m:
-        defined: set[str] = set()
+        topics: defaultdict[str, set[str]] = defaultdict(set)  # topic -> attributes filed under it
         timelines: set[tuple[str, str]] = set()
         started = time.perf_counter()
         for s, entry in zip(sessions, factlog["sessions"], strict=True):
             m.ingest(
                 s.sid,
-                [Event(key, s.sid, "message", {"text": text, "date": s.date})
+                [Event(key, s.sid, "message", {"text": text, "date": s.date},
+                       parse_date(s.date).isoformat())
                  for key, text, _ in s.rounds],
-            )
+            )  # fmt: skip
             if spec.facts and entry["facts"]:
-                writes = [
-                    FactWrite(f["subject"], f["attribute"], f["value"],
-                              locate_source(s, f["evidence"]))
-                    for f in entry["facts"]
-                ]
+                writes = fact_writes(s, entry["facts"])
                 try:
                     m.assert_facts(writes)
-                    asserted += len(writes)
+                    asserted += len(entry["facts"])
                     if spec.nodes:
-                        for w in writes:
-                            if w.subject not in defined:
-                                define_profile(m, w.subject)
-                                defined.add(w.subject)
+                        grown = set()
+                        for f in entry["facts"]:
+                            name = (f.get("topic") or "").casefold()
+                            if name and f["attribute"] not in topics[name]:
+                                topics[name].add(f["attribute"])
+                                grown.add(name)
+                        for name in sorted(grown):
+                            # Keywords keep a topic (and its digest) findable before it is built.
+                            keywords = " ".join(sorted(topics[name]))
+                            define_topic(m, name, keywords=keywords)
+                            if spec.digests:
+                                m.define(
+                                    DIGEST_KIND,
+                                    name,
+                                    2,
+                                    make_digest(digest_model, ledger),
+                                    DIGEST_DECLARED_COST,
+                                    search_text=digest_search_text,
+                                    keywords=keywords,
+                                )
                         define_timelines(m, writes, timelines)
                 except StrataError:
                     assert_failures += 1
             if spec.bg_budget is not None:
                 budget = Budget.unlimited() if math.isinf(spec.bg_budget) else Budget(spec.bg_budget)
                 maintenance.merge(m.maintain(budget, spec.policy))
+            if spec.digests:
+                rebuild_estimate += digest_costs(m)[0]
         ingest_s = time.perf_counter() - started
         dirty_before_query = sum(
             n for state, n in m.status()["nodes"].items() if state != "valid"
         )
 
         started = time.perf_counter()
+        question = q["question"]
+        window = time_window(question, q["question_date"]) if spec.tuned else None
         if not spec.facts:
-            recalled = m.search_events(q["question"], spec.raw_events)
+            recalled = m.search_events(question, spec.raw_events)
             fallback_used, suppressed, refreshed, warnings = True, 0, 0, ()
         else:
             res = m.recall(
-                q["question"],
+                question,
                 limit=CONTEXT_ITEMS,
                 include_stale=spec.include_stale,
                 lazy_budget=spec.lazy_budget,
-                events=CONTEXT_ITEMS,
+                events=EVENT_ITEMS,
             )
             recalled = list(res.items)
             fallback_used, suppressed, refreshed, warnings = (
                 res.fallback_used, res.suppressed, res.refreshed, res.warnings)
+        if window is not None:
+            since, until = window
+            recalled = add_window_events(
+                recalled, m.search_events(question, WINDOW_EVENTS, since=since, until=until)
+            )
         latency_ms = (time.perf_counter() - started) * 1000
+        lazy_cost = 0.0
+        if spec.lazy_budget is not None:
+            lazy_cost = m.engine.totals.cost - maintenance.cost
 
         converted = [to_context_item(m, item) for item in recalled]
-        rendered, fitted = render_context([ctx for ctx, _ in converted])
+        rendered, fitted = render_context(
+            [ctx for ctx, _ in converted], question if spec.tuned else None
+        )
         # Only items that fit under the character cap reach the answer model.
         context, seen_events, statuses = [], set(), Counter()
         for item, (ctx, events) in zip(recalled[:fitted], converted[:fitted], strict=True):
             context.append(ctx)
             seen_events.update(events)
             statuses[f"{item.status}:{item.kind if item.kind in ('event', 'fact') else 'node'}"] += 1
+        final_cost, digests_built = digest_costs(m)
+        nodes = m.nodes()
         return {
             "context": context,
             "rendered": rendered,
             "retrieved_items": len(recalled),
             "retrieval_ms": latency_ms,
+            "time_window": window,
             "fallback_used": fallback_used,
             "suppressed": suppressed,
             "refreshed": refreshed,
@@ -503,26 +739,41 @@ def run_system(
             "stale_items_served": sum(v for k, v in statuses.items() if k.startswith("stale:")),
             "evidence_hit": (bool(seen_events & evidence_keys) if evidence_keys else None),
             "maintenance": {k: v for k, v in maintenance.as_dict().items() if k != "outcomes"},
+            "lazy_cost": lazy_cost,
             "dirty_nodes_at_query": dirty_before_query,
             "facts_asserted": asserted,
             "assert_failures": assert_failures,
+            "topics": len(topics),
             "timelines": len(timelines),
+            "digests": {
+                "defined": sum(n.kind == DIGEST_KIND for n in nodes),
+                "valid_at_end": sum(n.kind == DIGEST_KIND and n.state == "valid" for n in nodes),
+                "built": digests_built,
+                "calls": ledger["calls"],
+                "tokens_spent": ledger["tokens"],
+                "full_rebuild_tokens_estimate": rebuild_estimate,
+                "build_once_at_query_tokens_estimate": final_cost,
+            }
+            if spec.digests
+            else None,
             "ingest_s": ingest_s,
             "node_states": m.status()["nodes"],
         }
 
 
-def retrieve_question(q: dict[str, Any], model: CachedBackend) -> dict:
+def retrieve_question(
+    q: dict[str, Any], model: CachedBackend, systems: tuple[str, ...]
+) -> dict:
     path = OUT / "contexts" / f"{q['question_id']}.json"
     cached = read_json(path) if path.exists() else None
-    if cached is not None and set(SYSTEM_NAMES) <= set(cached["systems"]):
+    if cached is not None and set(systems) <= set(cached["systems"]):
         return cached
     sessions = prepare_sessions(q)
     factlog = extract_question(q, sessions, model)
     if cached is not None:  # add systems introduced after this context was written
-        for spec in SYSTEMS:
-            if spec.name not in cached["systems"]:
-                cached["systems"][spec.name] = run_system(q, sessions, factlog, spec)
+        for name in systems:
+            if name not in cached["systems"]:
+                cached["systems"][name] = run_system(q, sessions, factlog, SPECS[name], model)
         write_json(path, cached)
         return cached
     out = {
@@ -535,7 +786,7 @@ def retrieve_question(q: dict[str, Any], model: CachedBackend) -> dict:
             "failed_sessions": sum(e["failed"] for e in factlog["sessions"]),
             "facts": sum(len(e["facts"]) for e in factlog["sessions"]),
         },
-        "systems": {s.name: run_system(q, sessions, factlog, s) for s in SYSTEMS},
+        "systems": {name: run_system(q, sessions, factlog, SPECS[name], model) for name in systems},
     }
     write_json(path, out)
     return out
@@ -546,23 +797,38 @@ def retrieve_question(q: dict[str, Any], model: CachedBackend) -> dict:
 ANSWER_SYSTEM = (
     "You are a personal assistant with a memory of past conversations with the user. Answer the "
     "question using only the memory items provided. Memory items are retrieved snippets and may "
-    "be incomplete; each may carry a date. If the memory shows the same thing with different "
-    "values at different times, the most recent one is the current one. If the memory does not "
-    "contain the information needed to answer, reply starting with 'ABSTAIN:' followed by a "
-    "brief explanation of what is missing. Otherwise answer concisely."
+    "be incomplete; each may carry a date.\n"
+    "First write NOTES: one short line per memory item that bears on the question, with its "
+    "date and what it says; skip unrelated items. For questions that count, sum, compare or "
+    "order things, list every distinct relevant item in the notes before computing, and do not "
+    "count the same thing twice. If the memory shows the same thing with different values at "
+    "different times, the most recent one is the current one. Work out date differences from "
+    "the dates shown and the current date.\n"
+    "Then write a final line starting with 'ANSWER:' followed by a concise answer. If the memory "
+    "does not contain the information needed, the final line is 'ANSWER: ABSTAIN:' followed by "
+    "a brief explanation of what is missing."
 )
 
 
 def answer_request(q: dict[str, Any], rendered: str) -> ModelRequest:
     prompt = (
         f"Current date: {q['question_date']}\n\nMemory:\n{rendered}\n\n"
-        f"Question: {q['question']}\nAnswer:"
+        f"Question: {q['question']}"
     )
-    return ModelRequest(prompt, ANSWER_SYSTEM, temperature=0.0, max_tokens=400)
+    return ModelRequest(prompt, ANSWER_SYSTEM, temperature=0.0, max_tokens=1500)
+
+
+_ANSWER_MARK = re.compile(r"(?:^|\n)[ \t*_#]*ANSWER[ \t*_]*:[ \t*_]*", re.I)
+
+
+def final_answer(text: str) -> str:
+    """The part of a note-taking reply after its last 'ANSWER:' (the whole reply if none)."""
+    marks = list(_ANSWER_MARK.finditer(text))
+    return text[marks[-1].end():].strip() if marks else text.strip()
 
 
 def is_abstention(text: str) -> bool:
-    return text.strip().upper().startswith("ABSTAIN")
+    return final_answer(text).lstrip("*").strip().upper().startswith("ABSTAIN")
 
 
 _JUDGE_DEFAULT = (
@@ -678,17 +944,19 @@ def answer_task(
     with gates[answerer.name]:
         rec = answerer.call(answer_request(q, context["systems"][system]["rendered"]))
     response = rec.text.strip()
+    answer = final_answer(response)
     verdicts = []
     for j in (judge, judge2):
         with gates[j.name]:
             verdicts.append(
-                j.call(ModelRequest(judge_prompt(q, response), temperature=0.0, max_tokens=20)).text
+                j.call(ModelRequest(judge_prompt(q, answer), temperature=0.0, max_tokens=20)).text
             )
     out: dict[str, Any] = {
         "qid": q["question_id"],
         "system": system,
         "answerer": answerer.name,
         "response": response,
+        "answer": answer,
         "abstained": is_abstention(response),
         "correct": verdicts[0].strip().lower().startswith("yes"),
         "correct_judge2": verdicts[1].strip().lower().startswith("yes"),
@@ -702,7 +970,7 @@ def answer_task(
             label = judge.call(
                 ModelRequest(
                     STALE_LABEL_PROMPT.format(
-                        evidence=update_evidence(q), q=q["question"], a=q["answer"], r=response
+                        evidence=update_evidence(q), q=q["question"], a=q["answer"], r=answer
                     ),
                     temperature=0.0,
                     max_tokens=20,
@@ -771,18 +1039,26 @@ def build_report(
         },
         "config": {
             "context_items": CONTEXT_ITEMS,
-            "item_chars": ITEM_CHARS,
+            "strata_recall_events": EVENT_ITEMS,
+            "raw_search_item_chars": ITEM_CHARS,
+            "snippet_chars": SNIPPET_CHARS,
             "context_chars": CONTEXT_CHARS,
-            "strata_recall_events": CONTEXT_ITEMS,
-            "derived_nodes": "profile per subject, timeline per changed fact",
+            "window_events": WINDOW_EVENTS,
+            "derived_nodes": "topic per extracted topic, timeline per changed single-valued fact",
+            "answer_prompt": "note-taking (Chain-of-Note); judges see only the final ANSWER line",
             "background_budget_per_session": BACKGROUND_BUDGET,
             "lazy_budget_per_query": LAZY_BUDGET,
+            "digest_model": DIGEST_MODEL,
+            "digest_background_tokens_per_session": DIGEST_BG_BUDGET,
+            "digest_lazy_tokens_per_query": DIGEST_LAZY_BUDGET,
         },
         "systems": {},
         "answerers": {},
     }
     ctx_qids = [qid for qid in qmap if qid in contexts]
     ext = [contexts[qid]["extraction"] for qid in ctx_qids]
+    ext_tokens = {qid: contexts[qid]["extraction"]["in"] + contexts[qid]["extraction"]["out"]
+                  for qid in ctx_qids}  # fmt: skip
     report["extraction"] = {
         "questions": len(ext),
         "calls": sum(e["calls"] for e in ext),
@@ -793,7 +1069,10 @@ def build_report(
         "facts": sum(e["facts"] for e in ext),
     }
     for system in SYSTEM_NAMES:
-        rows = [contexts[qid]["systems"][system] for qid in ctx_qids]
+        rows = [contexts[qid]["systems"][system] for qid in ctx_qids
+                if system in contexts[qid]["systems"]]  # fmt: skip
+        if not rows:
+            continue
         lat = [r["retrieval_ms"] for r in rows]
         ev = [r["evidence_hit"] for r in rows if r["evidence_hit"] is not None]
         maint = defaultdict(float)
@@ -821,9 +1100,35 @@ def build_report(
             "facts_asserted": sum(r["facts_asserted"] for r in rows),
             "assert_failures": sum(r["assert_failures"] for r in rows),
             "timelines_per_question": statistics.fmean(r.get("timelines", 0) for r in rows),
+            "topics_per_question": statistics.fmean(r.get("topics", 0) for r in rows),
+            "time_window_questions": sum(r.get("time_window") is not None for r in rows),
+            "memory_tokens_per_question": statistics.fmean(
+                (ext_tokens[qid] if SPECS[system].facts else 0)
+                + ((contexts[qid]["systems"][system].get("digests") or {}).get("tokens_spent", 0))
+                for qid in ctx_qids
+                if system in contexts[qid]["systems"]
+            ),
             "ingest_s_mean": statistics.fmean(r["ingest_s"] for r in rows),
             "context_chars_mean": statistics.fmean(len(r["rendered"]) for r in rows),
         }
+    report["digests"] = {}
+    for system in SYSTEM_NAMES:
+        rows = [contexts[qid]["systems"][system].get("digests") for qid in ctx_qids
+                if system in contexts[qid]["systems"]]  # fmt: skip
+        rows = [r for r in rows if r]
+        if rows:
+            total = lambda key, rows=rows: sum(r[key] for r in rows)  # noqa: E731
+            report["digests"][system] = {
+                "questions": len(rows),
+                "defined": total("defined"),
+                "valid_at_query": total("valid_at_end"),
+                "calls": total("calls"),
+                "tokens_spent": total("tokens_spent"),
+                "full_rebuild_tokens_estimate": total("full_rebuild_tokens_estimate"),
+                "build_once_at_query_tokens_estimate": total(
+                    "build_once_at_query_tokens_estimate"
+                ),
+            }
     for ans in answerers:
         block: dict[str, Any] = {}
         base_vecs: dict[str, dict[str, int]] = {}
@@ -936,12 +1241,14 @@ def render_markdown(rep: dict[str, Any]) -> str:
             lines.append(
                 f"| {system} | " + " | ".join(fmt_rate(e["by_type"][t]) for t in types) + " |"
             )
-        lines += ["", "| system | answer latency mean/p95 (s) | prompt tokens | completion tokens |",
-                  "|---|---|---|---|"]
+        lines += ["", "| system | answer latency mean/p95 (s) | prompt tokens | completion tokens |"
+                  " memory-building tokens/q (extraction + digests) |",
+                  "|---|---|---|---|---|"]  # fmt: skip
         for system, e in block.items():
+            memory = rep["systems"].get(system, {}).get("memory_tokens_per_question", 0)
             lines.append(
                 f"| {system} | {e['answer_latency_s_mean']:.2f} / {e['answer_latency_s_p95']:.2f} |"
-                f" {e['in_tokens_mean']:.0f} | {e['out_tokens_mean']:.1f} |"
+                f" {e['in_tokens_mean']:.0f} | {e['out_tokens_mean']:.1f} | {memory:.0f} |"
             )
         lines.append("")
     lines += [
@@ -949,8 +1256,8 @@ def render_markdown(rep: dict[str, Any]) -> str:
         "",
         "| system | retrieval ms mean/p50/p95 | fallback used | withheld nodes | dirty at query |"
         " stale items served | evidence in context | maint. jobs/q | maint. cost/q | wasted/q |"
-        " lazy refreshed | ctx chars | timelines/q |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        " lazy refreshed | ctx chars | topics/q | timelines/q | time-window questions |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for system, s in rep["systems"].items():
         mp = s["maintenance_per_question"]
@@ -962,8 +1269,30 @@ def render_markdown(rep: dict[str, Any]) -> str:
             f" {fmt_rate(s['evidence_in_context'])} | {mp.get('jobs', 0):.1f} |"
             f" {mp.get('cost', 0):.1f} | {mp.get('wasted_cost', 0):.1f} |"
             f" {s['lazy_refreshed_nodes']} | {s['context_chars_mean']:.0f} |"
-            f" {s['timelines_per_question']:.1f} |"
+            f" {s['topics_per_question']:.1f} | {s['timelines_per_question']:.1f} |"
+            f" {s['time_window_questions']} |"
         )
+    if rep.get("digests"):
+        lines += [
+            "",
+            "## LLM-written digests (real token costs)",
+            "",
+            "Tokens are the digest model's reported input + output tokens. The full-rebuild figure"
+            " (eager row only) is an estimate: every digest re-written after every session, at its"
+            " latest measured cost. Build-once is each digest built so far written once, at query"
+            " time, at its latest measured cost.",
+            "",
+            "| system | questions | digests | valid at query | model calls | tokens spent |"
+            " full rebuild (est.) | build once at query (est.) |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for system, d in rep["digests"].items():
+            lines.append(
+                f"| {system} | {d['questions']} | {d['defined']} | {d['valid_at_query']} |"
+                f" {d['calls']} | {d['tokens_spent']:.0f} |"
+                + (f" {d['full_rebuild_tokens_estimate']:.0f} |" if system == "digest_eager" else " - |")
+                + f" {d['build_once_at_query_tokens_estimate']:.0f} |"
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -1007,6 +1336,12 @@ def main() -> int:
     ap.add_argument("--extract-workers", type=int, default=10)
     ap.add_argument("--openai-concurrency", type=int, default=16)
     ap.add_argument("--cursor-concurrency", type=int, default=10, help="per model")
+    ap.add_argument("--digest-n", type=int, default=DIGEST_QUESTIONS,
+                    help="digest systems run on this stratified prefix (0 = none)")
+    ap.add_argument("--digest-answerers", type=int, default=1,
+                    help="digest systems are answered by the first N answerers")
+    ap.add_argument("--subset", nargs=2, type=int, metavar=("N", "EXTRA_KU"),
+                    help="also report on load_questions(N, seed, EXTRA_KU), e.g. an earlier run")
     args = ap.parse_args()
 
     if not DATA_PATH.exists():
@@ -1014,6 +1349,12 @@ def main() -> int:
         return 2
     questions = load_questions(args.n, args.seed, args.extra_ku)
     qmap = {q["question_id"]: q for q in questions}
+    digest_qids = {q["question_id"] for q in load_questions(args.digest_n, args.seed)} if args.digest_n else set()
+    digest_names = tuple(s.name for s in SYSTEMS if s.digests)
+
+    def systems_for(qid: str) -> tuple[str, ...]:
+        return tuple(n for n in SYSTEM_NAMES if n not in digest_names or qid in digest_qids)
+
     store = ResponseStore(OUT / "responses.sqlite")
     extractor = make_backend(EXTRACTION_MODEL, store)
     judge = make_backend(JUDGE_MODEL, store)
@@ -1028,8 +1369,13 @@ def main() -> int:
     errors: list[str] = []
 
     if args.command == "run" and "retrieve" in args.stages:
+        # Digest questions first: their retrieval makes model calls of its own.
+        ordered = sorted(questions, key=lambda q: q["question_id"] not in digest_qids)
         _, errs = run_pool(
-            "retrieve", args.extract_workers, questions, lambda q: retrieve_question(q, extractor)
+            "retrieve",
+            args.extract_workers,
+            ordered,
+            lambda q: retrieve_question(q, extractor, systems_for(q["question_id"])),
         )
         errors += errs
     contexts = {
@@ -1039,11 +1385,14 @@ def main() -> int:
     }
 
     if args.command == "run" and "answer" in args.stages:
+        digest_answerers = set(list(answer_models)[: args.digest_answerers])
         tasks = [
             (qmap[qid], system, ans)
             for ans in answer_models
             for qid in contexts
-            for system in SYSTEM_NAMES
+            for system in systems_for(qid)
+            if system in contexts[qid]["systems"]
+            and (system not in digest_names or ans in digest_answerers)
         ]
         _, errs = run_pool(
             "answer",
@@ -1059,10 +1408,8 @@ def main() -> int:
         rec = read_json(path)
         if rec["qid"] in qmap and rec["answerer"] in {m.name for m in answer_models.values()}:
             answers[(rec["qid"], rec["system"], rec["answerer"])] = rec
-    report = build_report(
-        [qmap[qid] for qid in contexts], contexts, answers,
-        [m.name for m in answer_models.values()], args.tag,
-    )
+    names = [m.name for m in answer_models.values()]
+    report = build_report([qmap[qid] for qid in contexts], contexts, answers, names, args.tag)
     report["backend_errors"] = errors
     report["live_calls"] = {
         b.name: {"live": b.live_calls, "cache_hits": b.cache_hits}
@@ -1072,6 +1419,13 @@ def main() -> int:
     (RESULTS / f"longmemeval_{args.tag}.json").write_text(json.dumps(report, indent=2))
     (RESULTS / f"longmemeval_{args.tag}.md").write_text(render_markdown(report))
     print(render_markdown(report))
+    if args.subset:
+        n, extra = args.subset
+        sub_tag = f"{args.tag}_subset{n + extra}"
+        chosen = [q for q in load_questions(n, args.seed, extra) if q["question_id"] in contexts]
+        sub = build_report(chosen, contexts, answers, names, sub_tag)
+        (RESULTS / f"longmemeval_{sub_tag}.json").write_text(json.dumps(sub, indent=2))
+        (RESULTS / f"longmemeval_{sub_tag}.md").write_text(render_markdown(sub))
     if errors:
         print(f"{len(errors)} backend errors (first: {errors[0]})", file=sys.stderr)
     return 0

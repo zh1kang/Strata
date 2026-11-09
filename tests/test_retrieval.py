@@ -84,9 +84,10 @@ def test_fallback_when_nothing_current_matches(mem: Memory) -> None:
 
 
 def test_fallback_warning_distinguishes_current_hits_from_no_raw_evidence(mem: Memory) -> None:
-    build_atlas(mem)  # no raw event mentions "launch"
+    mem.define("summary", "orion", 1, lambda c: "steady")
+    build_atlas(mem)  # no raw event mentions a summary or a banner
     mem.assert_fact("atlas", "launch_date", "2027-01-15", "e1")
-    result = mem.recall("launch")
+    result = mem.recall("summary banner")
     assert result.fallback_used
     assert any("no raw event evidence" in w for w in result.warnings)
     assert not any("no current memory" in w for w in result.warnings)
@@ -201,6 +202,17 @@ def test_unbuilt_node_is_withheld_and_can_be_built_lazily(mem: Memory) -> None:
     assert next(i for i in lazy.items if i.kind == "summary").value == {"launch": "2026-12-10"}
 
 
+def test_lazy_budget_builds_a_chain_of_never_built_nodes(mem: Memory) -> None:
+    mem.assert_fact("atlas", "launch_date", "2026-12-10", "e0")
+    mem.define("summary", "atlas", 1, lambda c: {"launch": c.slot("atlas", "launch_date")})
+    mem.define("banner", "atlas", 2, lambda c: f"Launch {c.node('summary', 'atlas')['launch']}")
+    # The banner's dependency on the summary is only discovered when it first runs.
+    lazy = mem.recall("banner", lazy_budget=3)
+    assert lazy.refreshed == 2 and lazy.suppressed == 0
+    assert next(i for i in lazy.items if i.kind == "banner").value == "Launch 2026-12-10"
+    assert mem.read_node("banner", "atlas").status == "current"
+
+
 def test_search_text_controls_how_a_built_node_is_indexed(mem: Memory) -> None:
     mem.assert_fact("atlas", "launch_date", "2026-12-10", "e0")
     mem.define(
@@ -230,3 +242,19 @@ def test_explain_reports_graph(mem: Memory) -> None:
     assert info["dependencies"][0]["kind"] == "slot"
     assert info["provenance"] == ["event:e0", "fact:atlas/launch_date@1"]
     assert mem.dependents("summary", "atlas") == [("banner", "atlas")]
+
+
+def test_keywords_make_an_unbuilt_node_findable_and_can_change(mem: Memory) -> None:
+    mem.assert_fact("user", "books", ["Dune"], "e0")
+    mem.define("digest", "reading", 1, lambda c: {"n": len(c.slot("user", "books"))})
+    assert mem.recall("books", lazy_budget=2).refreshed == 0  # only "digest reading" is indexed
+    mem.define("digest", "reading", 1, lambda c: {"n": len(c.slot("user", "books"))},
+               keywords="books novels")  # fmt: skip
+    assert mem.node("digest", "reading").state == NodeState.PENDING  # no invalidation
+    lazy = mem.recall("novels", lazy_budget=2)
+    assert lazy.refreshed == 1 and lazy.items[0].value == {"n": 1}
+    mem.define("digest", "reading", 1, lambda c: {"n": len(c.slot("user", "books"))},
+               keywords="library")  # fmt: skip
+    assert [i.kind for i in mem.recall("library").items] == ["digest"]
+    assert not [i for i in mem.recall("novels").items if i.kind == "digest"]
+    assert mem.node("digest", "reading").state == NodeState.VALID

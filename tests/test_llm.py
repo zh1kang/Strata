@@ -12,15 +12,18 @@ import pytest
 from strata import Event, ExtractionError, Memory
 from strata.llm import (
     CachedModel,
+    ExtractionResult,
     FakeModel,
     InMemoryCache,
     Model,
     ModelRequest,
     SqliteCache,
+    apply_extraction,
     extract_and_assert,
     extract_facts,
     parse_extraction,
 )
+from strata.profiles import define_topic
 
 SOURCE = "Atlas now launches on Jan 15, owned by Ana."
 
@@ -232,3 +235,82 @@ def test_core_does_not_import_llm_package() -> None:
     code = "import sys, strata; assert not any(m.startswith('strata.llm') for m in sys.modules)"
     env = {"PYTHONPATH": str(Path(__file__).resolve().parent.parent / "src")}
     assert subprocess.run([sys.executable, "-c", code], env=env, check=False).returncode == 0
+
+
+def test_ops_and_topics_are_parsed() -> None:
+    result = parse_extraction(
+        reply(
+            fact(attribute="books", value="Dune", op="add", topic="Reading", evidence=None),
+            fact(attribute="books", value="Emma", op="add", topic="Reading", evidence=None),
+            fact(attribute="books", value="Emma", op="add", evidence=None),
+            fact(attribute="owner", op="retract", value=None, evidence=None),
+        )
+    )
+    assert [(f.attribute, f.value, f.op, f.topic) for f in result.facts] == [
+        ("books", "Dune", "add", "Reading"),
+        ("books", "Emma", "add", "Reading"),
+        ("owner", None, "retract", None),
+    ]
+
+
+@pytest.mark.parametrize(
+    "facts",
+    [
+        [fact(op="append")],
+        [fact(op="add"), fact(op="set")],
+        [fact(op="set", value="a"), fact(op="set", value="b")],
+        [fact(op="set", value=None)],
+        [fact(topic="")],
+    ],
+)
+def test_bad_ops_and_topics_are_rejected(facts: list[dict[str, object]]) -> None:
+    with pytest.raises(ExtractionError):
+        parse_extraction(reply(*facts))
+
+
+def test_topic_membership_feeds_a_topic_node(mem: Memory) -> None:
+    def extract(*facts: dict[str, object]) -> ExtractionResult:
+        return parse_extraction(reply(*facts))
+
+    define_topic(mem, "Reading")
+    apply_extraction(
+        mem,
+        "e0",
+        extract(
+            fact(
+                subject="user",
+                attribute="books",
+                value="Dune",
+                op="add",
+                topic="reading",
+                evidence=None,
+            )
+        ),
+    )
+    mem.maintain()
+    assert mem.node("topic", "reading").value == {"user.books": ["Dune"]}
+    apply_extraction(
+        mem,
+        "e1",
+        extract(
+            fact(
+                subject="user",
+                attribute="books",
+                value="Emma",
+                op="add",
+                topic="Reading",
+                evidence=None,
+            ),
+            fact(
+                subject="user", attribute="club", value="Tuesdays", topic="reading", evidence=None
+            ),
+        ),
+    )
+    assert mem.node("topic", "reading").state == "stale"
+    mem.maintain()
+    assert mem.node("topic", "reading").value == {
+        "user.books": ["Dune", "Emma"],
+        "user.club": "Tuesdays",
+    }
+    hits = [i for i in mem.recall("club books").items if i.kind == "topic"]
+    assert hits and hits[0].status == "current"

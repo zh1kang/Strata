@@ -129,8 +129,9 @@ class Memory:
         cost: float = 1.0,
         version: str = "1",
         search_text: Callable[[Any], str] | None = None,
+        keywords: str = "",
     ) -> None:
-        self.engine.define(kind, key, level, fn, cost, version, search_text)
+        self.engine.define(kind, key, level, fn, cost, version, search_text, keywords)
 
     def maintain(
         self, budget: Budget | float | None = None, policy: Policy | str = Policy.PRIORITY
@@ -186,6 +187,8 @@ class Memory:
         lazy_budget: float | None = None,
         record_access: bool = True,
         events: int = 0,
+        since: str | None = None,
+        until: str | None = None,
     ) -> RecallResult:
         return self.retriever.recall(
             query,
@@ -195,6 +198,8 @@ class Memory:
             lazy_budget=lazy_budget,
             record_access=record_access,
             events=events,
+            since=since,
+            until=until,
         )
 
     def read_node(
@@ -209,8 +214,10 @@ class Memory:
             kind, key, refresh_budget=refresh_budget, record_access=record_access
         )
 
-    def search_events(self, query: str, limit: int = 10) -> list[RecallItem]:
-        return self.retriever.search_events(query, limit)
+    def search_events(
+        self, query: str, limit: int = 10, *, since: str | None = None, until: str | None = None
+    ) -> list[RecallItem]:
+        return self.retriever.search_events(query, limit, since=since, until=until)
 
     # ------------------------------------------------------------------ introspection
 

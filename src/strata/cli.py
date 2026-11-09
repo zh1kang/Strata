@@ -13,7 +13,7 @@ from typing import Any
 from . import bench
 from .errors import StrataError
 from .memory import Memory
-from .profiles import define_profile, rebind_profiles
+from .profiles import PROFILE_KIND, TOPIC_KIND, define_profile, define_topic, rebind_profiles
 from .types import Budget, Event, FactWrite, Policy
 
 
@@ -40,7 +40,8 @@ def _parser() -> argparse.ArgumentParser:
     group = s.add_mutually_exclusive_group()
     group.add_argument("--text", help="payload text")
     group.add_argument("--payload", help="payload as a JSON object")
-    group.add_argument("--file", help="JSONL file of {key, session_id, kind, payload}")
+    group.add_argument("--file", help="JSONL file of {key, session_id, kind, payload, at}")
+    s.add_argument("--at", help="when the event happened (ISO 8601)")
 
     s = sub.add_parser("assert", help="assert a fact")
     s.add_argument("subject")
@@ -48,6 +49,9 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("value", help="JSON, or a bare string")
     s.add_argument("--source", required=True, help="source event key")
     s.add_argument("--expect-version", type=int, help="compare-and-set (0 = must not exist)")
+    s.add_argument(
+        "--mode", choices=["set", "add", "remove"], default="set", help="set-valued writes"
+    )
 
     s = sub.add_parser("retract", help="retract a fact")
     s.add_argument("subject")
@@ -63,6 +67,9 @@ def _parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("define-profile", help="define a profile node (all facts of a subject)")
     s.add_argument("subject")
+    s.add_argument("--cost", type=float, default=1.0)
+    s = sub.add_parser("define-topic", help="define a topic node (facts filed under a topic)")
+    s.add_argument("topic")
     s.add_argument("--cost", type=float, default=1.0)
 
     s = sub.add_parser("maintain", help="repair dirty nodes within a budget")
@@ -80,6 +87,8 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--no-fallback", action="store_true")
     s.add_argument("--lazy-budget", type=float)
     s.add_argument("--events", type=int, default=0, help="raw events to add next to facts")
+    s.add_argument("--since", help="only events and facts dated at or after (ISO 8601)")
+    s.add_argument("--until", help="only events and facts dated before (ISO 8601)")
 
     s = sub.add_parser("nodes", help="list derived nodes")
     s.add_argument("--state")
@@ -101,7 +110,13 @@ def _events_from_file(path: str) -> list[Event]:
             try:
                 raw = json.loads(line)
                 events.append(
-                    Event(raw["key"], raw["session_id"], raw.get("kind", "message"), raw["payload"])
+                    Event(
+                        raw["key"],
+                        raw["session_id"],
+                        raw.get("kind", "message"),
+                        raw["payload"],
+                        raw.get("at"),
+                    )
                 )
             except (json.JSONDecodeError, KeyError, TypeError) as exc:
                 raise ValueError(f"{path}:{number}: invalid event line ({exc})") from exc
@@ -130,7 +145,8 @@ def _ingest(mem: Memory, args: argparse.Namespace) -> Any:
         payload = {}
     if not isinstance(payload, dict):
         raise ValueError("payload must be a JSON object")
-    return asdict(mem.ingest(args.session, [Event(args.key, args.session, args.kind, payload)]))
+    event = Event(args.key, args.session, args.kind, payload, args.at)
+    return asdict(mem.ingest(args.session, [event]))
 
 
 def _dispatch(mem: Memory, args: argparse.Namespace) -> Any:
@@ -143,7 +159,12 @@ def _dispatch(mem: Memory, args: argparse.Namespace) -> Any:
         return _ingest(mem, args)
     if cmd == "assert":
         write = FactWrite(
-            args.subject, args.attribute, _json_value(args.value), args.source, args.expect_version
+            args.subject,
+            args.attribute,
+            _json_value(args.value),
+            args.source,
+            args.expect_version,
+            args.mode,
         )
         return {"version_id": mem.assert_facts([write])[0]}
     if cmd == "retract":
@@ -158,7 +179,10 @@ def _dispatch(mem: Memory, args: argparse.Namespace) -> Any:
         return [asdict(f) for f in mem.fact_history(args.subject, args.attribute)]
     if cmd == "define-profile":
         define_profile(mem, args.subject, args.cost)
-        return asdict(mem.node("profile", args.subject))
+        return asdict(mem.node(PROFILE_KIND, args.subject))
+    if cmd == "define-topic":
+        define_topic(mem, args.topic, args.cost)
+        return asdict(mem.node(TOPIC_KIND, args.topic.casefold()))
     if cmd == "maintain":
         rebind_profiles(mem)
         budget = None if args.budget is None else Budget(args.budget)
@@ -178,6 +202,8 @@ def _dispatch(mem: Memory, args: argparse.Namespace) -> Any:
             fallback=not args.no_fallback,
             lazy_budget=args.lazy_budget,
             events=args.events,
+            since=args.since,
+            until=args.until,
         )
         return asdict(result)
     if cmd == "nodes":

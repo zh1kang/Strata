@@ -6,6 +6,7 @@ valid) and are total orders: ties always fall through to ``node_id``.
 * ``fifo``: oldest dirty first (``dirty_since`` revision, then node id).
 * ``priority``: highest ``(1 + accesses) / cost`` first, so frequently read and
   cheap nodes are repaired before rarely read or expensive ones; ties by age.
+  ``cost`` is the node's last measured cost when it has one.
 
 Budget handling is first-fit in policy order: a node that does not fit in the
 remaining budget is skipped (and reported), and later nodes that do fit still run.
@@ -26,7 +27,8 @@ def _fifo_key(row: sqlite3.Row) -> tuple[Any, ...]:
 
 
 def _priority_key(row: sqlite3.Row) -> tuple[Any, ...]:
-    cost = float(row["cost"])
+    measured = row["measured_cost"]
+    cost = float(row["cost"] if measured is None else measured)
     weight = (1 + int(row["access_count"])) / cost if cost > 0 else math.inf
     return (-weight, row["dirty_since"] or 0, row["node_id"])
 
@@ -42,6 +44,10 @@ def parse_policy(policy: Policy | str) -> Policy:
         return Policy(policy)
     except ValueError as exc:
         raise ValueError(f"unknown policy {policy!r}; expected 'fifo' or 'priority'") from exc
+
+
+def key(policy: Policy) -> Callable[[sqlite3.Row], tuple[Any, ...]]:
+    return _KEYS[policy]
 
 
 def order(policy: Policy, candidates: Iterable[sqlite3.Row]) -> list[sqlite3.Row]:

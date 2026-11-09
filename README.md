@@ -1,7 +1,7 @@
 # Strata
 
 Strata is a small, dependency-light SQLite memory engine for agents (Python 3.12+, standard library only).
-It keeps an append-only log of events, versioned fact slots, and *derived nodes* (summaries, profiles, anything computed from facts) whose inputs are tracked exactly.
+It keeps an append-only log of dated events, versioned fact slots (single- or set-valued), and *derived nodes* (summaries, profiles, topic digests, anything computed from facts or sessions) whose inputs are tracked exactly.
 When a fact changes, only the derived nodes that actually read it are invalidated, repaired within a cost budget, and never served while out of date.
 
 The core is model-free. Language-model support lives in a separate optional boundary, `strata.llm`, which the core never imports.
@@ -36,6 +36,7 @@ The same is available from the shell (every command prints JSON; `--db` or `STRA
 strata --db agent.db ingest --session s1 --key s1:1 --text "Atlas launches Dec 10"
 strata --db agent.db assert atlas launch_date '"2026-12-10"' --source s1:1
 strata --db agent.db define-profile atlas      # built-in node holding all facts of a subject
+strata --db agent.db define-topic launches     # built-in node holding the facts filed under a topic
 strata --db agent.db maintain --budget 5 --policy priority
 strata --db agent.db recall launch
 strata --db agent.db explain profile atlas     # dependencies, dependents, provenance
@@ -45,33 +46,41 @@ Without installing, use `PYTHONPATH=src python -m strata ...`. Install with `pip
 
 ### CLI commands
 
-`init`, `status`, `ingest` (`--text`, `--payload JSON`, or `--file events.jsonl`), `assert` (`--expect-version` for compare-and-set), `retract`, `facts`, `history`, `define-profile`, `maintain` (`--budget`, `--policy fifo|priority`), `rebuild`, `retry-failed`, `recall` (`--limit`, `--include-stale`, `--no-fallback`, `--lazy-budget`, `--events`), `nodes`, `explain`, `bench`.
+`init`, `status`, `ingest` (`--text`, `--payload JSON`, or `--file events.jsonl`; `--at` for the event time), `assert` (`--expect-version` for compare-and-set, `--mode set|add|remove`), `retract`, `facts`, `history`, `define-profile`, `define-topic`, `maintain` (`--budget`, `--policy fifo|priority`), `rebuild`, `retry-failed`, `recall` (`--limit`, `--include-stale`, `--no-fallback`, `--lazy-budget`, `--events`, `--since`, `--until`), `nodes`, `explain`, `bench`.
 Errors print `error: ...` to stderr and exit with status 1.
 
-The CLI can only maintain the built-in `profile` derivation, because Python derivation functions are not persisted (see Limitations).
+The CLI can only maintain the built-in `profile` and `topic` derivations, because Python derivation functions are not persisted (see Limitations).
 
 ## Public API
 
 | Area | API |
 | --- | --- |
-| Events | `ingest(session_id, events)`, `event(key)`, `events(session_id, limit)` |
-| Facts | `assert_fact`, `assert_facts` (atomic batch of `FactWrite`), `retract_fact`, `get_fact`, `facts(subject)`, `fact_history`, `head_version` |
-| Derived nodes | `define(kind, key, level, fn, cost, version, search_text)`, `node`, `nodes(state)`, `dependencies`, `dependents`, `explain` |
+| Events | `ingest(session_id, events)`, `event(key)`, `events(session_id, limit)`; `Event(key, session_id, kind, payload, at=None)` |
+| Facts | `assert_fact`, `assert_facts` (atomic batch of `FactWrite`, with `mode` set/add/remove/retract), `retract_fact`, `get_fact`, `facts(subject)`, `fact_history`, `head_version` |
+| Derived nodes | `define(kind, key, level, fn, cost, version, search_text, keywords)`, `node`, `nodes(state)`, `dependencies`, `dependents`, `explain` |
 | Maintenance | `maintain(budget, policy)` returning a `MaintenanceReport`, `rebuild`, `retry_failed` |
-| Retrieval | `recall(query, include_stale, fallback, lazy_budget, limit, events)`, `read_node(kind, key, refresh_budget)`, `search_events` |
+| Retrieval | `recall(query, include_stale, fallback, lazy_budget, limit, events, since, until)`, `read_node(kind, key, refresh_budget)`, `search_events(query, limit, since, until)`, `strata.index.snippet(text, query, width)` |
 | Introspection | `status()` |
 
 A derivation is a function `fn(ctx)` that returns a JSON-serializable value. It may read only through `ctx`:
 
 - `ctx.slot(subject, attribute, default=None)` reads one fact slot. Missing and retracted slots return `default` and are still tracked.
 - `ctx.subject(subject)` reads every live attribute of a subject.
-- `ctx.history(subject, attribute)` reads a slot's value changes, oldest first, each with its source event key. It is tracked like `ctx.slot`; re-asserting the current value is not a change.
+- `ctx.history(subject, attribute)` reads a slot's value changes, oldest first, each with its source event key and date. It is tracked like `ctx.slot`; re-asserting the current value is not a change.
+- `ctx.session(session_id)` reads every event of a session in arrival order. It is tracked: appending an event to that session invalidates the reader, and nothing else does.
 - `ctx.event(key)` reads an event payload. Events are immutable, so this read needs no tracking.
 - `ctx.node(kind, key)` reads a node of a *strictly lower* level that is currently valid.
+- `ctx.charge(cost)` reports what this run really cost (for example model tokens). From then on the scheduler uses the node's latest measured cost instead of its declared `cost`.
 
-A node is searchable by its kind and key from the moment it is defined, so a query can find, withhold, or lazily build a node that was never built. Once built it is indexed by `search_text(value)` if given, otherwise by its flattened value. `define_profile` indexes profiles by attribute names only, because a profile holds every value of its subject.
+A node is searchable by its kind, key, and `keywords` from the moment it is defined, so a query can find, withhold, or lazily build a node that was never built. Once built it is also indexed by `search_text(value)` if given, otherwise by its flattened value. Defining a node again with different keywords re-indexes it without invalidating it; this is how a lazily maintained node stays findable as what it covers grows. `define_profile` indexes profiles by attribute names only, because a profile holds every value of its subject.
 
 `expected_version` on a fact write is a compare-and-set on the slot head: `None` skips the check, `0` means "the slot must not exist yet", and any other value must equal the current head version id.
+
+`FactWrite.mode` makes a slot set-valued: `add` appends the given item(s) that are not already present (a scalar head counts as a one-item list), `remove` deletes them, and `retract` retracts the slot. These read the head inside the write transaction, so concurrent additions never lose an item, and `remove`/`retract` of something absent write nothing instead of failing the batch. Adding an item that is already present is a same-value write and invalidates nothing.
+
+`Event.at` is when an event happened (ISO 8601, normalised on ingest; part of the event's identity). Facts, history entries, and recalled items carry the date of their source event as `at`.
+
+Subjects that start with `_` are internal bookkeeping: tracked like any slot but never indexed for search. The built-in topic nodes use this: `define_topic(memory, name)` defines a node holding every live fact listed in the set-valued slot `_topic:<name>.members` (pairs of subject and attribute). It is invalidated when one of those facts changes or a new one joins the topic, and by nothing else. `strata.llm.apply_extraction` maintains the membership from the `topic` field of extracted facts.
 
 ## Architecture
 
@@ -83,8 +92,9 @@ context.py     tracked reads handed to derivations
 maintenance.py node definitions, leases, optimistic rebuilds, failure handling
 scheduler.py   FIFO and priority policies
 retrieval.py   recall with provenance, stale suppression, raw fallback, lazy refresh
-index.py       incremental FTS5 index
-store.py       SQLite connection, write transactions, schema version check
+index.py       incremental FTS5 index (Porter stemming, stopwords, fact-expanded events), snippets
+profiles.py    built-in profile and topic derivations
+store.py       SQLite connection, write transactions, schema version check and migration
 llm/           optional model boundary (Model protocol, fake model, cache, extraction)
 bench.py       deterministic seeded benchmark
 cli.py         command line
@@ -95,7 +105,7 @@ Every committed write is stamped with a monotonically increasing revision; a tra
 
 ### How invalidation works
 
-Each node stores the inputs it observed, with the revision of each: fact slots, whole subjects, and lower-level nodes.
+Each node stores the inputs it observed, with the revision of each: fact slots, whole subjects, sessions, and lower-level nodes.
 
 - A slot's `changed_revision` only advances when its *effective value* changes. Re-asserting an identical value records the new source event for provenance but invalidates nothing.
 - Reading a slot that does not exist yet records a dependency on that slot key. Reading a subject records a dependency on the subject as a whole. Creating the slot later therefore invalidates the reader (phantom dependencies).
@@ -108,15 +118,15 @@ Each node stores the inputs it observed, with the revision of each: fact slots, 
 A rebuild claims a time-limited lease on the node, runs the derivation outside any write transaction, then commits in one `BEGIN IMMEDIATE` transaction that re-checks the lease token and that every observed input revision (and node validity) still matches.
 If an input moved, or the lease was lost, the result is discarded, counted as `conflicts` and `wasted_cost`, and the node stays dirty. A stale result is never committed as valid.
 A derivation that raises is retried on later runs; after `max_attempts` (default 3) the node becomes `failed`, is withheld, and stays parked until `retry_failed()` or until an input changes. `LevelViolationError` is a programming error: the node is parked and the exception propagates.
-A node that reads a lower-level node that is not yet valid is deferred at no cost and retried after progress.
+A node that reads a lower-level node that is not yet valid is deferred at no cost and retried after progress. In a restricted run (`lazy_budget`, `refresh_budget`) the missing node joins the run, so a chain of nodes that were never built can be built on demand.
 
 ### Scheduling
 
-`maintain(budget, policy)` considers dirty nodes whose node dependencies are all valid, in a deterministic total order, and spends `cost` units per recomputation.
+`maintain(budget, policy)` considers dirty nodes whose node dependencies are all valid, in a deterministic total order, and spends `cost` units per recomputation: the node's latest measured cost if its derivation calls `ctx.charge`, otherwise its declared cost. Eligible nodes are kept in a priority queue and only the dependents of a node that became valid are re-examined, so a run over `n` independent nodes takes time linear in `n` (8,000 nodes: 4.0 s, previously 72.6 s with a full rescan per job), with the same choices a full rescan would make.
 
 - `fifo`: oldest dirty first, ties by node id.
 - `priority`: highest `(1 + access_count) / cost` first (frequently read, cheap nodes), ties by age then node id. `recall` and `read_node` record accesses, including for nodes that were withheld.
-- Budget is first-fit in policy order: a node that does not fit in the remaining budget is skipped and reported (`skipped_budget`), and later nodes that fit still run. The budget is never exceeded. `Budget(cost, max_jobs)` can also cap job count.
+- Budget is first-fit in policy order: a node that does not fit in the remaining budget is skipped and reported (`skipped_budget`), and later nodes that fit still run. With declared costs the budget is never exceeded; a measured cost is only known after a run, so a run can overshoot by one job's misestimate. `Budget(cost, max_jobs)` can also cap job count.
 - Zero-cost verification of suspect nodes always runs, even with a zero budget.
 
 `MaintenanceReport` fields: `jobs`, `verified`, `cutoffs`, `cost`, `wasted_cost`, `conflicts`, `failures`, `lease_busy`, `not_ready`, `unregistered`, `skipped_budget`, `dirty`, `write_amplification` (node values actually rewritten), and per-node `outcomes`.
@@ -124,12 +134,15 @@ A node that reads a lower-level node that is not yet valid is deferred at no cos
 ### Retrieval
 
 `recall(query)` searches current fact heads and derived nodes with FTS5 (BM25) and resolves status against live tables at query time.
+Words are Porter-stemmed and English function words are dropped from queries (unless the query has nothing else). An event's search document also holds the text of every fact extracted from it, so a question phrased like a fact finds the conversation that stated it; the returned item still shows the event as it was said.
 
 - A derived node is returned as `current` only while its state is `valid`. Stale, suspect, pending, and failed nodes are withheld and counted in `suppressed`.
 - `include_stale=True` returns withheld nodes explicitly labelled `stale`.
 - If nothing current matched, or a relevant node was withheld, raw event matches are appended with status `raw` and a warning that they are unverified evidence (`fallback_used`). `fallback=False` disables this.
 - `events=N` always appends up to `N` raw events after current memory: the source event of each returned fact, interleaved with plain event search hits, without duplicates. Facts say what is current; their source events keep the detail and the dates that a one-line fact drops. On LongMemEval, recall without source events lost 20-28 points of accuracy to plain event search (see `benchmarks/README.md`).
-- `lazy_budget=N` lets the query first repair, within `N` cost units, the dirty nodes it matched (and their dirty upstream nodes); whatever is still dirty is withheld.
+- `lazy_budget=N` lets the query first repair, within `N` cost units, the dirty nodes it matched (and their dirty upstream nodes, including ones never built); whatever is still dirty is withheld.
+- `since` / `until` (ISO 8601, `[since, until)`) keep only events dated inside the window, and facts whose source event is; the window is applied inside the search, so it does not just filter a truncated list. Derived nodes are not filtered.
+- `strata.index.snippet(text, query, width)` cuts long text to the sentences that match a query, widened with their neighbours, with `…` at every gap; useful for fitting more retrieved items into a model's context.
 - Every item carries `provenance`: `fact:<subject>/<attribute>@<version>`, `event:<key>`, and `node:<kind>/<key>` entries, derived from recorded dependencies rather than anything a model asserted.
 - Free-text queries are tokenized and quoted, so punctuation and FTS operators in a query cannot cause syntax errors.
 
@@ -163,7 +176,7 @@ Provided pieces:
 
 - `FakeModel`: scripted replies (mapping from prompt substring, ordered list, or callable) with a recorded call log, for tests and offline use.
 - `CachedModel(model, cache)` with `InMemoryCache` or `SqliteCache(path)`: caches deterministic (`temperature == 0`) requests under a key covering model name, system prompt, prompt, temperature, and token limit.
-- `parse_extraction` / `extract_facts` / `extract_and_assert`: ask a model for `{"facts": [{"subject", "attribute", "value", "evidence", "confidence"}]}` and validate strictly. Validation is all-or-nothing: invalid JSON, wrong shape, unknown fields, null values, non-finite numbers, out-of-range or non-numeric confidence, conflicting duplicate facts, too many facts, oversized values, or (when a source text is given) evidence that does not occur in the source event all raise `ExtractionError`, and nothing is written. A reply wrapped in a single markdown code fence is accepted; any other surrounding text is not.
+- `parse_extraction` / `extract_facts` / `extract_and_assert`: ask a model for `{"facts": [{"subject", "attribute", "value", "op", "topic", "evidence", "confidence"}]}` and validate strictly. `op` is `set` (default), `add`, `remove`, or `retract` and becomes the write's `mode`; `topic` files the fact under a topic node. Several `add`s to one slot in one reply are allowed; two different `set`s are a conflict. Validation is all-or-nothing: invalid JSON, wrong shape, unknown fields, null values, non-finite numbers, out-of-range or non-numeric confidence, conflicting duplicate facts, too many facts, oversized values, or (when a source text is given) evidence that does not occur in the source event all raise `ExtractionError`, and nothing is written. A reply wrapped in a single markdown code fence is accepted; any other surrounding text is not.
 - Accepted facts are asserted atomically with the source event as provenance. Low-confidence facts can be dropped with `min_confidence`.
 
 No provider adapter is shipped, and no model is ever called by the core.
@@ -223,12 +236,12 @@ python -m compileall -q src tests
 ## Limitations
 
 - **Derivations are not persisted.** Functions must be registered with `define` in every process. Nodes whose function is not registered are skipped and reported as `unregistered`. The CLI only knows the built-in `profile` derivation.
-- **Derivations must be deterministic functions of their tracked reads.** Anything read outside `ctx` (clock, files, network, raw events, global state) is untracked and will not trigger invalidation. Derivations cannot read raw events with tracking.
-- **One value per slot.** A slot is a single `(subject, attribute)` value with a version history. There is no multi-valued attribute, bitemporal (valid-time) modelling, or contradiction inference.
+- **Derivations must be deterministic functions of their tracked reads.** Anything read outside `ctx` (clock, files, network, global state) is untracked and will not trigger invalidation. A derivation that calls a model is deterministic only up to the model (cache its responses); Strata tracks what it read, not what the model did with it. `ctx.event(key)` is untracked because events never change; read a whole session with `ctx.session` to be invalidated by new events.
+- **Slots are versioned values, not a temporal database.** Set-valued slots and event dates are supported, but there is no valid-time modelling (when a fact *became* true, as opposed to when it was stated) and no contradiction inference beyond replacing a slot's value.
 - **Concurrency is coarse.** A `Memory` is not thread-safe; use one per thread or process. SQLite serialises writers. Leases are time-based without heartbeat or renewal, so a derivation that outlives `lease_ttl` can lose its lease and have its work discarded; clock skew between machines is not handled. Nothing here is distributed.
-- **Scheduler trade-offs.** First-fit budgeting never exceeds the budget but can skip an expensive node indefinitely (a node costing more than the whole budget never runs). The priority policy can starve rarely read nodes while hot nodes keep being dirtied. Costs are declared by the caller, not measured.
-- **Search is lexical.** FTS5/BM25 only; no embeddings. A withheld node's previous text stays indexed so it can be located, but is never returned as current. Each recall records node accesses with a small write.
+- **Scheduler trade-offs.** First-fit budgeting never exceeds the budget but can skip an expensive node indefinitely (a node costing more than the whole budget never runs). The priority policy can starve rarely read nodes while hot nodes keep being dirtied. Measured costs (`ctx.charge`) are only as good as the derivation's own accounting.
+- **Search is lexical.** FTS5/BM25 with Porter stemming; no embeddings or synonyms. Time windows need dated events. A withheld node's previous text stays indexed so it can be located, but is never returned as current. Each recall records node accesses with a small write.
 - **Data lifecycle.** Events and fact versions cannot be deleted or edited, so there is no erasure mechanism. Search results are capped by `limit`.
-- **Schema.** The schema is versioned (`2`); opening a database with a different version raises `SchemaError`. There are no migrations yet.
+- **Schema.** The schema is versioned (`3`). A version-2 database is migrated in place on open (dates, sessions, stemmed index, fact-expanded events); any other version raises `SchemaError`.
 - **LLM boundary.** No provider adapters are included. Extraction validation guards the format and (optionally) grounding of model output but cannot judge whether an extracted fact is true.
 - **Benchmark.** Synthetic, single-process, and sensitive to its parameters and baseline definitions, as described above.

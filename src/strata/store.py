@@ -9,8 +9,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from . import index
 from .errors import FTSUnavailableError, SchemaError, StrataError
-from .schema import SCHEMA, SCHEMA_VERSION
+from .schema import MIGRATE_2_TO_3, SCHEMA, SCHEMA_VERSION
 
 
 def encode(value: Any) -> str:
@@ -76,6 +77,9 @@ class Store:
         has_meta = db.execute("SELECT 1 FROM sqlite_master WHERE name='meta'").fetchone()
         if has_meta:
             row = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+            if row is not None and row[0] == "2":
+                self._migrate_2_to_3()
+                row = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
             if row is None or row[0] != str(SCHEMA_VERSION):
                 found = None if row is None else row[0]
                 raise SchemaError(
@@ -88,6 +92,15 @@ class Store:
             "INSERT OR IGNORE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
         )
         db.execute("PRAGMA foreign_keys=ON")
+
+    def _migrate_2_to_3(self) -> None:
+        with self.write():
+            for statement in MIGRATE_2_TO_3.split(";"):
+                if statement.strip():
+                    self.db.execute(statement)
+            seqs = self.db.execute("SELECT DISTINCT source_seq FROM fact_versions").fetchall()
+            for (seq,) in seqs:
+                index.refresh_event(self.db, int(seq))
 
     @contextmanager
     def write(self) -> Iterator[WriteTxn]:

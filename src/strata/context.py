@@ -8,6 +8,7 @@ and never on citations produced by a model.
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from . import graph
@@ -28,6 +29,9 @@ class Context:
         # with a broad ``except``) would otherwise commit a result that never recorded that
         # input, so the engine re-raises it once the derivation returns.
         self._signal: Exception | None = None
+        # Lower-level nodes this derivation asked for that were not valid yet.
+        self.not_ready: set[int] = set()
+        self.charged: float | None = None  # measured cost, if the derivation reported one
 
     def raise_if_signalled(self) -> None:
         """Re-raise an engine signal the derivation may have swallowed."""
@@ -80,7 +84,7 @@ class Context:
     def history(self, subject: str, attribute: str) -> list[dict[str, Any]]:
         """Value changes of a slot, oldest first, tracked like :meth:`slot`.
 
-        Each entry is ``{"op", "value", "source"}`` for the first version of a run of
+        Each entry is ``{"op", "value", "source", "at"}`` for the first version of a run of
         identical versions. Re-asserting the current value does not move the slot's
         revision, so it must not change this output either.
         """
@@ -92,7 +96,7 @@ class Context:
         ).fetchone()
         self._observe(graph.SLOT, subject, attribute, 0, int(head[0]) if head else 0)
         rows = db.execute(
-            "SELECT v.op, v.value, e.event_key FROM slots s"
+            "SELECT v.op, v.value, e.event_key, e.occurred_at FROM slots s"
             " JOIN fact_versions v ON v.slot_id = s.slot_id"
             " JOIN events e ON e.seq = v.source_seq"
             " WHERE s.subject=? AND s.attribute=? ORDER BY v.version_id",
@@ -105,8 +109,46 @@ class Context:
                 continue
             last = (r["op"], r["value"])
             value = json.loads(r["value"]) if r["value"] is not None else None
-            changes.append({"op": r["op"], "value": value, "source": r["event_key"]})
+            changes.append(
+                {"op": r["op"], "value": value, "source": r["event_key"], "at": r["occurred_at"]}
+            )
         return changes
+
+    def session(self, session_id: str) -> list[dict[str, Any]]:
+        """Events of a session in arrival order, tracked: appending to it invalidates the reader.
+
+        Each entry is ``{"key", "kind", "payload", "at"}``. Reading an unknown
+        session returns ``[]`` and still records the dependency.
+        """
+        db = self._store.db
+        revision = graph.current_revision(db, graph.SESSION, session_id, "", 0)
+        self._observe(graph.SESSION, session_id, "", 0, revision)  # read revision first: safe
+        rows = db.execute(
+            "SELECT event_key, kind, payload, occurred_at FROM events WHERE session_id=?"
+            " ORDER BY seq",
+            (session_id,),
+        ).fetchall()
+        return [
+            {
+                "key": r["event_key"],
+                "kind": r["kind"],
+                "payload": json.loads(r["payload"]),
+                "at": r["occurred_at"],
+            }
+            for r in rows
+        ]
+
+    def charge(self, cost: float) -> None:
+        """Add to this run's measured cost (for example model tokens spent).
+
+        Once a derivation charges anything, the scheduler uses the measured total
+        of its latest run instead of the declared ``cost``.
+        """
+        if isinstance(cost, bool) or not isinstance(cost, (int, float)):
+            raise TypeError("cost must be a number")
+        if not math.isfinite(cost) or cost < 0:
+            raise ValueError("cost must be a finite non-negative number")
+        self.charged = (self.charged or 0.0) + float(cost)
 
     def event(self, key: str) -> dict[str, Any]:
         """Payload of a stored event. Events are immutable, so this read is not tracked."""
@@ -134,6 +176,7 @@ class Context:
                 )
             )
         if row["state"] != "valid":
+            self.not_ready.add(int(row["node_id"]))
             raise self._signal_error(DependencyNotReadyError(f"{kind}/{key} is {row['state']}"))
         self._observe(graph.NODE, "", "", int(row["node_id"]), int(row["changed_revision"]))
         return json.loads(row["value"])

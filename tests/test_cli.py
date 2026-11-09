@@ -83,6 +83,25 @@ def test_cli_ingest_file_and_bare_string_values(
     assert run(capsys, db, "facts", "atlas")[0]["value"] == "ana"
 
 
+def test_cli_dates_sets_and_topics(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    db = str(tmp_path / "cli.db")
+    for key, at in (("may", "2023-05-02"), ("june", "2023-06-09")):
+        run(capsys, db, "ingest", "--session", "s", "--key", key, "--text", "read a book",
+            "--at", at)  # fmt: skip
+        run(capsys, db, "assert", "user", "books", key, "--source", key, "--mode", "add")
+        run(capsys, db, "assert", "_topic:reading", "members", '[["user", "books"]]',
+            "--source", key, "--mode", "add")  # fmt: skip
+    assert run(capsys, db, "facts", "user")[0]["value"] == ["may", "june"]
+    assert run(capsys, db, "define-topic", "Reading")["key"] == "reading"
+    assert run(capsys, db, "maintain")["jobs"] == 1
+    recall = run(capsys, db, "recall", "books", "--events", "5", "--since", "2023-06-01")
+    assert {(i["kind"], i["key"]) for i in recall["items"]} == {
+        ("fact", "user/books"),
+        ("topic", "reading"),
+        ("event", "june"),
+    }
+
+
 def test_cli_errors_exit_nonzero(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     db = str(tmp_path / "cli.db")
     assert main(["--db", db, "assert", "a", "b", "1", "--source", "missing"]) == 1

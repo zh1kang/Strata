@@ -18,6 +18,7 @@ from .types import Dependency
 SLOT = "slot"
 SUBJECT = "subject"
 NODE = "node"
+SESSION = "session"  # the session id is stored as the dependency subject
 
 _NO_REVISION = -1
 
@@ -39,6 +40,17 @@ def invalidate_for_facts(
             (subject, attribute, subject),
         ).fetchall()
         direct.update(int(r[0]) for r in rows)
+    invalidate_nodes(db, revision, direct)
+    return direct
+
+
+def invalidate_for_session(db: sqlite3.Connection, revision: int, session_id: str) -> set[int]:
+    """Mark everything that read a session to which events were just appended."""
+    rows = db.execute(
+        "SELECT DISTINCT node_id FROM node_deps WHERE dep_kind='session' AND dep_subject=?",
+        (session_id,),
+    ).fetchall()
+    direct = {int(r[0]) for r in rows}
     invalidate_nodes(db, revision, direct)
     return direct
 
@@ -92,6 +104,11 @@ def current_revision(
             "SELECT changed_revision FROM subjects WHERE subject=?", (subject,)
         ).fetchone()
         return int(row[0]) if row else 0
+    if kind == SESSION:
+        row = db.execute(
+            "SELECT changed_revision FROM sessions WHERE session_id=?", (subject,)
+        ).fetchone()
+        return int(row[0]) if row else 0
     row = db.execute(
         "SELECT changed_revision, state FROM nodes WHERE node_id=?", (node,)
     ).fetchone()
@@ -129,7 +146,7 @@ def dependencies(db: sqlite3.Connection, node_id: int) -> list[Dependency]:
     for r in stored_dependencies(db, node_id):
         if r["dep_kind"] == SLOT:
             ref = f"{r['dep_subject']}/{r['dep_attribute']}"
-        elif r["dep_kind"] == SUBJECT:
+        elif r["dep_kind"] in (SUBJECT, SESSION):
             ref = r["dep_subject"]
         else:
             n = db.execute(
@@ -194,6 +211,8 @@ def provenance(db: sqlite3.Connection, node_id: int) -> tuple[str, ...]:
             elif dep["dep_kind"] == SUBJECT:
                 for row in db.execute(head_sql, (dep["dep_subject"],)):
                     fact_entries(row)
+            elif dep["dep_kind"] == SESSION:
+                found.add(f"session:{dep['dep_subject']}")
             else:
                 n = db.execute(
                     "SELECT kind, node_key FROM nodes WHERE node_id=?", (dep["dep_node"],)
