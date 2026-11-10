@@ -13,7 +13,7 @@ curl -L -o benchmarks/data/longmemeval_s_cleaned.json \
 
 # needs the `cursor-agent` CLI (logged in) for the default models; no extra Python packages
 PYTHONPATH=src python3 benchmarks/longmemeval.py run --tag v3 --subset 150 40 \
-  --answerers cursor:composer-2.5-fast cursor:grok-4.7-low-fast
+  --subset-only-answerers --answerers cursor:composer-2.5-fast cursor:grok-4.7-low-fast
 ```
 
 Model specs are `cursor:<id>` (Cursor agent CLI, read-only `ask` mode in an empty workspace) or
@@ -26,7 +26,9 @@ them and `report` regenerates the tables without model calls. Reports go to
 Question selection is a seeded, type-stratified ranking; `--n N` takes the first N (default: all
 500), so a larger run extends a smaller one. `--extra-ku K` appends K further knowledge-update
 questions. `--subset N K` also writes a report restricted to `--n N --extra-ku K` (the 190
-questions of the earlier `main` run are `--subset 150 40`). The digest systems run on the first
+questions of the earlier `main` run are `--subset 150 40`). With `--subset-only-answerers`, answer
+models after the first answer only those subset questions, and the full report covers the first
+model alone. The digest systems run on the first
 `--digest-n` questions (default 40) and are answered by the first `--digest-answerers` models.
 
 ## Systems (same events, same context cap, same answer prompt for all)

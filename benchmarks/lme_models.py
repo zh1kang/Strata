@@ -104,7 +104,8 @@ class OpenAIBackend:
             except urllib.error.HTTPError as exc:
                 last = exc
                 detail = exc.read()[:300]
-                if exc.code not in (408, 409, 429, 500, 502, 503, 504) or b"insufficient_quota" in detail:
+                retryable = exc.code in (408, 409, 429, 500, 502, 503, 504)
+                if not retryable or b"insufficient_quota" in detail:
                     raise BackendError(f"{self.name}: HTTP {exc.code}: {detail!r}") from exc
             except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
                 last = exc

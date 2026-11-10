@@ -33,9 +33,9 @@ import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from itertools import zip_longest
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 
@@ -233,7 +233,7 @@ EXTRACT_SYSTEM = (
     "old one. Give each set attribute at most once per session.\n"
     'op "add": one more item of something the user accumulates or repeats (e.g. books_read, '
     "restaurants_tried, plants_owned, trips_taken, purchases, workouts). The value is that one "
-    "item, self-contained with any quantity, price and date mentioned (e.g. \"monstera plant, "
+    'item, self-contained with any quantity, price and date mentioned (e.g. "monstera plant, '
     'bought 2023-05-20, $25"). Use one add per item instead of a running count. If the user '
     "states a total explicitly, also record that total with op set.\n"
     'op "remove": an item of such a collection is gone (sold, given away, finished, died); the '
@@ -244,7 +244,7 @@ EXTRACT_SYSTEM = (
     "Include only things the user says about their own life: possessions, plans, preferences, "
     "counts, dates, events, relationships, numbers. Skip generic questions, requests for help, "
     "hypotheticals, and anything the assistant said. Values must be self-contained: include "
-    "units, and turn relative dates (\"last week\", \"yesterday\") into dates using the session "
+    'units, and turn relative dates ("last week", "yesterday") into dates using the session '
     "date. Copy evidence exactly, character for character."
 )
 _FENCE = re.compile(r"\A```(?:json)?[ \t]*\n(.*)\n```\Z", re.DOTALL)
@@ -253,9 +253,7 @@ _FENCE = re.compile(r"\A```(?:json)?[ \t]*\n(.*)\n```\Z", re.DOTALL)
 def extract_prompt(group: list[tuple[int, Session]], slots: list[str], topics: list[str]) -> str:
     listed = ", ".join(slots[-SLOT_LIST_LIMIT:]) if slots else "none"
     named = ", ".join(topics[-TOPIC_LIST_LIMIT:]) if topics else "none"
-    blocks = [
-        f"=== SESSION {number} (date {s.date}) ===\n{s.user_text}" for number, s in group
-    ]
+    blocks = [f"=== SESSION {number} (date {s.date}) ===\n{s.user_text}" for number, s in group]
     return (
         f"EXISTING SLOTS (subject.attribute): {listed}\nEXISTING TOPICS: {named}\n\n"
         + "\n\n".join(blocks)
@@ -312,7 +310,11 @@ def make_groups(sessions: list[Session]) -> list[list[tuple[int, Session]]]:
     for number, s in enumerate(sessions):
         if not s.user_text.strip():
             continue
-        if not groups or len(groups[-1]) >= GROUP_SESSIONS or chars + len(s.user_text) > GROUP_CHARS:
+        if (
+            not groups
+            or len(groups[-1]) >= GROUP_SESSIONS
+            or chars + len(s.user_text) > GROUP_CHARS
+        ):
             groups.append([])
             chars = 0
         groups[-1].append((number, s))
@@ -415,9 +417,20 @@ _NUMBER = {
     "seven": 7, "eight": 8, "nine": 9, "ten": 10, "few": 3, "couple": 2, "several": 4,
 }  # fmt: skip
 _UNIT_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
-_MONTHS = (
-    "january february march april may june july august september october november december"
-).split()
+_MONTHS = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+]
 _AGO = re.compile(r"\b(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|a few|a couple of)"
                   r" (day|week|month|year)s? ago\b", re.I)  # fmt: skip
 _PAST = re.compile(r"\b(?:past|last) (?:(\d+|two|three|four|five|six|few|couple of|several) )?"
@@ -553,7 +566,7 @@ def define_timelines(m: Memory, writes: list[FactWrite], defined: set[tuple[str,
 
 
 DIGEST_PROMPT = (
-    "Below is everything a user has told an assistant about the topic \"{topic}\", as dated "
+    'Below is everything a user has told an assistant about the topic "{topic}", as dated '
     "fact changes in chronological order. Write a compact digest of it for the assistant's "
     "memory: a dated timeline of what happened, then the current state. Keep every name, "
     "number, quantity, price and date; when something changed, say what it was before and what "
@@ -677,14 +690,14 @@ def run_system(
                 except StrataError:
                     assert_failures += 1
             if spec.bg_budget is not None:
-                budget = Budget.unlimited() if math.isinf(spec.bg_budget) else Budget(spec.bg_budget)
+                budget = (
+                    Budget.unlimited() if math.isinf(spec.bg_budget) else Budget(spec.bg_budget)
+                )
                 maintenance.merge(m.maintain(budget, spec.policy))
             if spec.digests:
                 rebuild_estimate += digest_costs(m)[0]
         ingest_s = time.perf_counter() - started
-        dirty_before_query = sum(
-            n for state, n in m.status()["nodes"].items() if state != "valid"
-        )
+        dirty_before_query = sum(n for state, n in m.status()["nodes"].items() if state != "valid")
 
         started = time.perf_counter()
         question = q["question"]
@@ -702,7 +715,11 @@ def run_system(
             )
             recalled = list(res.items)
             fallback_used, suppressed, refreshed, warnings = (
-                res.fallback_used, res.suppressed, res.refreshed, res.warnings)
+                res.fallback_used,
+                res.suppressed,
+                res.refreshed,
+                res.warnings,
+            )
         if window is not None:
             since, until = window
             recalled = add_window_events(
@@ -722,7 +739,9 @@ def run_system(
         for item, (ctx, events) in zip(recalled[:fitted], converted[:fitted], strict=True):
             context.append(ctx)
             seen_events.update(events)
-            statuses[f"{item.status}:{item.kind if item.kind in ('event', 'fact') else 'node'}"] += 1
+            statuses[
+                f"{item.status}:{item.kind if item.kind in ('event', 'fact') else 'node'}"
+            ] += 1
         final_cost, digests_built = digest_costs(m)
         nodes = m.nodes()
         return {
@@ -761,9 +780,7 @@ def run_system(
         }
 
 
-def retrieve_question(
-    q: dict[str, Any], model: CachedBackend, systems: tuple[str, ...]
-) -> dict:
+def retrieve_question(q: dict[str, Any], model: CachedBackend, systems: tuple[str, ...]) -> dict:
     path = OUT / "contexts" / f"{q['question_id']}.json"
     cached = read_json(path) if path.exists() else None
     if cached is not None and set(systems) <= set(cached["systems"]):
@@ -812,8 +829,7 @@ ANSWER_SYSTEM = (
 
 def answer_request(q: dict[str, Any], rendered: str) -> ModelRequest:
     prompt = (
-        f"Current date: {q['question_date']}\n\nMemory:\n{rendered}\n\n"
-        f"Question: {q['question']}"
+        f"Current date: {q['question_date']}\n\nMemory:\n{rendered}\n\nQuestion: {q['question']}"
     )
     return ModelRequest(prompt, ANSWER_SYSTEM, temperature=0.0, max_tokens=1500)
 
@@ -824,7 +840,7 @@ _ANSWER_MARK = re.compile(r"(?:^|\n)[ \t*_#]*ANSWER[ \t*_]*:[ \t*_]*", re.I)
 def final_answer(text: str) -> str:
     """The part of a note-taking reply after its last 'ANSWER:' (the whole reply if none)."""
     marks = list(_ANSWER_MARK.finditer(text))
-    return text[marks[-1].end():].strip() if marks else text.strip()
+    return text[marks[-1].end() :].strip() if marks else text.strip()
 
 
 def is_abstention(text: str) -> bool:
@@ -967,15 +983,19 @@ def answer_task(
     }
     if q["question_type"] == "knowledge-update" and not q["question_id"].endswith("_abs"):
         with gates[judge.name]:
-            label = judge.call(
-                ModelRequest(
-                    STALE_LABEL_PROMPT.format(
-                        evidence=update_evidence(q), q=q["question"], a=q["answer"], r=answer
-                    ),
-                    temperature=0.0,
-                    max_tokens=20,
+            label = (
+                judge.call(
+                    ModelRequest(
+                        STALE_LABEL_PROMPT.format(
+                            evidence=update_evidence(q), q=q["question"], a=q["answer"], r=answer
+                        ),
+                        temperature=0.0,
+                        max_tokens=20,
+                    )
                 )
-            ).text.strip().lower()
+                .text.strip()
+                .lower()
+            )
         out["label"] = next((lab for lab in STALE_LABELS if lab in label), "other_wrong")
     write_json(path, out)
     return out
@@ -1026,7 +1046,9 @@ def build_report(
     types = sorted({q["question_type"] for q in questions})
     report: dict[str, Any] = {
         "tag": tag,
-        "dataset": "LongMemEval-S cleaned (xiaowu0162/longmemeval-cleaned, longmemeval_s_cleaned.json)",
+        "dataset": (
+            "LongMemEval-S cleaned (xiaowu0162/longmemeval-cleaned, longmemeval_s_cleaned.json)"
+        ),
         "dataset_sha256": hashlib.sha256(DATA_PATH.read_bytes()).hexdigest(),
         "n_questions": len(questions),
         "by_type_n": dict(Counter(q["question_type"] for q in questions)),
@@ -1092,7 +1114,9 @@ def build_report(
                 sum(r["dirty_nodes_at_query"] > 0 for r in rows), len(rows)
             ),
             "stale_items_served": sum(r["stale_items_served"] for r in rows),
-            "queries_serving_stale": rate(sum(r["stale_items_served"] > 0 for r in rows), len(rows)),
+            "queries_serving_stale": rate(
+                sum(r["stale_items_served"] > 0 for r in rows), len(rows)
+            ),
             "evidence_in_context": rate(sum(ev), len(ev)),
             "lazy_refreshed_nodes": sum(r["refreshed"] for r in rows),
             "maintenance_totals": dict(maint),
@@ -1125,9 +1149,7 @@ def build_report(
                 "calls": total("calls"),
                 "tokens_spent": total("tokens_spent"),
                 "full_rebuild_tokens_estimate": total("full_rebuild_tokens_estimate"),
-                "build_once_at_query_tokens_estimate": total(
-                    "build_once_at_query_tokens_estimate"
-                ),
+                "build_once_at_query_tokens_estimate": total("build_once_at_query_tokens_estimate"),
             }
     for ans in answerers:
         block: dict[str, Any] = {}
@@ -1146,8 +1168,12 @@ def build_report(
                 per_type[t] = rate(sum(r["correct"] for r in sub), len(sub))
             abs_recs = [r for q, r in recs if q["question_id"].endswith("_abs")]
             non_abs = [r for q, r in recs if not q["question_id"].endswith("_abs")]
-            ku = [r for q, r in recs
-                  if q["question_type"] == "knowledge-update" and not q["question_id"].endswith("_abs")]
+            ku = [
+                r
+                for q, r in recs
+                if q["question_type"] == "knowledge-update"
+                and not q["question_id"].endswith("_abs")
+            ]
             labels = Counter(r["label"] for r in ku)
             valid_types = [per_type[t]["rate"] for t in types if per_type[t]["n"]]
             vec = {r["qid"]: int(r["correct"]) for _, r in recs}
@@ -1164,9 +1190,13 @@ def build_report(
                 ),
                 "knowledge_update_accuracy": rate(sum(r["correct"] for r in ku), len(ku)),
                 "knowledge_update_strict_current_only": rate(labels["current_only"], len(ku)),
-                "knowledge_update_outdated_as_current": rate(labels["outdated_as_current"], len(ku)),
+                "knowledge_update_outdated_as_current": rate(
+                    labels["outdated_as_current"], len(ku)
+                ),
                 "knowledge_update_labels": dict(labels),
-                "abstention_questions_correct": rate(sum(r["correct"] for r in abs_recs), len(abs_recs)),
+                "abstention_questions_correct": rate(
+                    sum(r["correct"] for r in abs_recs), len(abs_recs)
+                ),
                 "abstained_on_answerable": rate(sum(r["abstained"] for r in non_abs), len(non_abs)),
                 "abstained_overall": rate(sum(r["abstained"] for _, r in recs), len(recs)),
                 "answer_latency_s_mean": statistics.fmean(r["latency_s"] for _, r in recs),
@@ -1214,8 +1244,7 @@ def render_markdown(rep: dict[str, Any]) -> str:
         lines += [
             "| system | n | accuracy | task-avg | accuracy (judge2) | judge agreement | KU acc |"
             " KU strict current-only | KU outdated-as-current | abs-question acc |"
-            " abstain on answerable |"
-            + "".join(f" diff vs {b} (95% CI) |" for b in BASELINES),
+            " abstain on answerable |" + "".join(f" diff vs {b} (95% CI) |" for b in BASELINES),
             "|---|---|---|---|---|---|---|---|---|---|---|" + "---|" * len(BASELINES),
         ]
         for system, e in block.items():
@@ -1227,7 +1256,8 @@ def render_markdown(rep: dict[str, Any]) -> str:
                 )
             diff = " | ".join(diffs)
             lines.append(
-                f"| {system} | {e['n']} | {fmt_rate(e['accuracy'])} | {e['task_averaged_accuracy']:.3f} |"
+                f"| {system} | {e['n']} | {fmt_rate(e['accuracy'])} |"
+                f" {e['task_averaged_accuracy']:.3f} |"
                 f" {fmt_rate(e['accuracy_judge2'])} | {fmt_rate(e['judge_agreement'])} |"
                 f" {fmt_rate(e['knowledge_update_accuracy'])} |"
                 f" {fmt_rate(e['knowledge_update_strict_current_only'])} |"
@@ -1290,7 +1320,11 @@ def render_markdown(rep: dict[str, Any]) -> str:
             lines.append(
                 f"| {system} | {d['questions']} | {d['defined']} | {d['valid_at_query']} |"
                 f" {d['calls']} | {d['tokens_spent']:.0f} |"
-                + (f" {d['full_rebuild_tokens_estimate']:.0f} |" if system == "digest_eager" else " - |")
+                + (
+                    f" {d['full_rebuild_tokens_estimate']:.0f} |"
+                    if system == "digest_eager"
+                    else " - |"
+                )
                 + f" {d['build_once_at_query_tokens_estimate']:.0f} |"
             )
     return "\n".join(lines) + "\n"
@@ -1329,28 +1363,64 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tag", default="run")
     ap.add_argument("--extra-ku", type=int, default=0, help="extra knowledge-update questions")
-    ap.add_argument("--answerers", nargs="+",
-                    default=["cursor:composer-2.5-fast", "cursor:grok-4.7-low-fast"])
-    ap.add_argument("--stages", nargs="+", default=["retrieve", "answer"],
-                    choices=["retrieve", "answer"])
+    ap.add_argument(
+        "--answerers", nargs="+", default=["cursor:composer-2.5-fast", "cursor:grok-4.7-low-fast"]
+    )
+    ap.add_argument(
+        "--stages", nargs="+", default=["retrieve", "answer"], choices=["retrieve", "answer"]
+    )
     ap.add_argument("--extract-workers", type=int, default=10)
     ap.add_argument("--openai-concurrency", type=int, default=16)
     ap.add_argument("--cursor-concurrency", type=int, default=10, help="per model")
-    ap.add_argument("--digest-n", type=int, default=DIGEST_QUESTIONS,
-                    help="digest systems run on this stratified prefix (0 = none)")
-    ap.add_argument("--digest-answerers", type=int, default=1,
-                    help="digest systems are answered by the first N answerers")
-    ap.add_argument("--subset", nargs=2, type=int, metavar=("N", "EXTRA_KU"),
-                    help="also report on load_questions(N, seed, EXTRA_KU), e.g. an earlier run")
+    ap.add_argument(
+        "--digest-n",
+        type=int,
+        default=DIGEST_QUESTIONS,
+        help="digest systems run on this stratified prefix (0 = none)",
+    )
+    ap.add_argument(
+        "--digest-answerers",
+        type=int,
+        default=1,
+        help="digest systems are answered by the first N answerers",
+    )
+    ap.add_argument(
+        "--subset",
+        nargs=2,
+        type=int,
+        metavar=("N", "EXTRA_KU"),
+        help="also report on load_questions(N, seed, EXTRA_KU), e.g. an earlier run",
+    )
+    ap.add_argument(
+        "--subset-only-answerers",
+        action="store_true",
+        help="answerers after the first answer only the --subset questions",
+    )
     args = ap.parse_args()
+    if args.subset_only_answerers and not args.subset:
+        ap.error("--subset-only-answerers needs --subset")
 
     if not DATA_PATH.exists():
         print(f"missing dataset {DATA_PATH}; see benchmarks/README.md", file=sys.stderr)
         return 2
     questions = load_questions(args.n, args.seed, args.extra_ku)
     qmap = {q["question_id"]: q for q in questions}
-    digest_qids = {q["question_id"] for q in load_questions(args.digest_n, args.seed)} if args.digest_n else set()
+    digest_qids = (
+        {q["question_id"] for q in load_questions(args.digest_n, args.seed)}
+        if args.digest_n
+        else set()
+    )
     digest_names = tuple(s.name for s in SYSTEMS if s.digests)
+
+    subset_qids = (
+        {q["question_id"] for q in load_questions(args.subset[0], args.seed, args.subset[1])}
+        if args.subset
+        else set(qmap)
+    )
+    primary = args.answerers[0]
+
+    def answers_question(ans: str, qid: str) -> bool:
+        return ans == primary or not args.subset_only_answerers or qid in subset_qids
 
     def systems_for(qid: str) -> tuple[str, ...]:
         return tuple(n for n in SYSTEM_NAMES if n not in digest_names or qid in digest_qids)
@@ -1393,13 +1463,15 @@ def main() -> int:
             for system in systems_for(qid)
             if system in contexts[qid]["systems"]
             and (system not in digest_names or ans in digest_answerers)
+            and answers_question(ans, qid)
         ]
         _, errs = run_pool(
             "answer",
             args.cursor_concurrency * (len(answer_models) + 2),
             tasks,
-            lambda t: answer_task(t[0], t[1], contexts[t[0]["question_id"]],
-                                  answer_models[t[2]], judge, judge2, gates),
+            lambda t: answer_task(
+                t[0], t[1], contexts[t[0]["question_id"]], answer_models[t[2]], judge, judge2, gates
+            ),
         )
         errors += errs
 
@@ -1409,7 +1481,8 @@ def main() -> int:
         if rec["qid"] in qmap and rec["answerer"] in {m.name for m in answer_models.values()}:
             answers[(rec["qid"], rec["system"], rec["answerer"])] = rec
     names = [m.name for m in answer_models.values()]
-    report = build_report([qmap[qid] for qid in contexts], contexts, answers, names, args.tag)
+    full_names = names[:1] if args.subset_only_answerers else names
+    report = build_report([qmap[qid] for qid in contexts], contexts, answers, full_names, args.tag)
     report["backend_errors"] = errors
     report["live_calls"] = {
         b.name: {"live": b.live_calls, "cache_hits": b.cache_hits}
