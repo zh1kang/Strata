@@ -17,6 +17,7 @@ from .types import (
     Dependency,
     Event,
     Fact,
+    FactStatus,
     FactWrite,
     IngestResult,
     MaintenanceReport,
@@ -117,6 +118,10 @@ class Memory:
 
     def head_version(self, subject: str, attribute: str) -> int:
         return facts.head_version(self.store, subject, attribute)
+
+    def fact_status(self, subject: str, attribute: str) -> FactStatus:
+        """``unverified`` (with reasons) when a premise of the fact changed; else ``current``."""
+        return facts.status(self.store.db, subject, attribute)
 
     # ------------------------------------------------------------------ derived nodes
 

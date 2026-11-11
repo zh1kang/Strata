@@ -11,7 +11,7 @@ from typing import Any
 
 from . import index
 from .errors import FTSUnavailableError, SchemaError, StrataError
-from .schema import MIGRATE_2_TO_3, SCHEMA, SCHEMA_VERSION
+from .schema import MIGRATE_2_TO_3, MIGRATE_3_TO_4, SCHEMA, SCHEMA_VERSION
 
 
 def encode(value: Any) -> str:
@@ -80,6 +80,9 @@ class Store:
             if row is not None and row[0] == "2":
                 self._migrate_2_to_3()
                 row = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+            if row is not None and row[0] == "3":
+                self._run_script(MIGRATE_3_TO_4)
+                row = db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
             if row is None or row[0] != str(SCHEMA_VERSION):
                 found = None if row is None else row[0]
                 raise SchemaError(
@@ -93,14 +96,18 @@ class Store:
         )
         db.execute("PRAGMA foreign_keys=ON")
 
-    def _migrate_2_to_3(self) -> None:
+    def _run_script(self, script: str, refresh_index: bool = False) -> None:
         with self.write():
-            for statement in MIGRATE_2_TO_3.split(";"):
+            for statement in script.split(";"):
                 if statement.strip():
                     self.db.execute(statement)
-            seqs = self.db.execute("SELECT DISTINCT source_seq FROM fact_versions").fetchall()
-            for (seq,) in seqs:
-                index.refresh_event(self.db, int(seq))
+            if refresh_index:
+                seqs = self.db.execute("SELECT DISTINCT source_seq FROM fact_versions").fetchall()
+                for (seq,) in seqs:
+                    index.refresh_event(self.db, int(seq))
+
+    def _migrate_2_to_3(self) -> None:
+        self._run_script(MIGRATE_2_TO_3, refresh_index=True)
 
     @contextmanager
     def write(self) -> Iterator[WriteTxn]:

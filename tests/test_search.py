@@ -86,3 +86,23 @@ def test_since_and_until_filter_events_and_facts(mem: Memory) -> None:
     assert by_kind[("fact", "user/bike")].at == "2023-05-20T10:00:00"
     assert {k for kind, k in by_kind if kind == "event"} == {"may"}
     assert mem.get_fact("user", "bike_sold").at == "2023-06-02T00:00:00"
+
+
+def test_indexing_an_event_looks_up_its_facts_by_index(mem: Memory) -> None:
+    from strata.index import EVENT_FACTS_SQL
+
+    plan = " ".join(
+        r[3] for r in mem.store.db.execute("EXPLAIN QUERY PLAN " + EVENT_FACTS_SQL, (1,))
+    )
+    assert "fact_versions_source" in plan
+    assert "SCAN" not in plan and "TEMP B-TREE" not in plan
+
+
+def test_opening_a_database_without_the_source_index_adds_it(db_path: str) -> None:
+    with Memory.open(db_path) as m:
+        m.store.db.execute("DROP INDEX fact_versions_source")
+    with Memory.open(db_path) as m:
+        names = {
+            r[0] for r in m.store.db.execute("SELECT name FROM sqlite_master WHERE type='index'")
+        }
+    assert "fact_versions_source" in names

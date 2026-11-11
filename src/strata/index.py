@@ -79,16 +79,19 @@ def fact_text(subject: str, attribute: str, value: Any) -> str:
     return f"{subject} {attribute} {flatten(value)}"
 
 
+# Facts asserted from one event, oldest first; uses the fact_versions_source index.
+EVENT_FACTS_SQL = (
+    "SELECT s.subject, s.attribute, v.value FROM fact_versions v"
+    " JOIN slots s ON s.slot_id = v.slot_id"
+    " WHERE v.source_seq=? AND v.op='assert' AND s.subject NOT LIKE '\\_%' ESCAPE '\\'"
+    " ORDER BY v.version_id"
+)
+
+
 def refresh_event(db: sqlite3.Connection, seq: int) -> None:
     """Re-index an event together with every fact ever asserted from it."""
     row = db.execute("SELECT kind, payload FROM events WHERE seq=?", (seq,)).fetchone()
-    facts = db.execute(
-        "SELECT s.subject, s.attribute, v.value FROM fact_versions v"
-        " JOIN slots s ON s.slot_id = v.slot_id"
-        " WHERE v.source_seq=? AND v.op='assert' AND s.subject NOT LIKE '\\_%' ESCAPE '\\'"
-        " ORDER BY v.version_id",
-        (seq,),
-    ).fetchall()
+    facts = db.execute(EVENT_FACTS_SQL, (seq,)).fetchall()
     lines = dict.fromkeys(fact_text(f[0], f[1], json.loads(f[2])) for f in facts)
     text = "\n".join([event_text(row[0], json.loads(row[1])), *lines])
     upsert(db, "event", seq, text)

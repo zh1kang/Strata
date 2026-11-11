@@ -11,9 +11,10 @@ import json
 import math
 from typing import Any
 
-from . import graph
+from . import facts, graph
 from .errors import DependencyNotReadyError, LevelViolationError, NotFoundError
 from .store import Store
+from .types import FactStatus
 
 
 class Context:
@@ -46,8 +47,28 @@ class Context:
     def _observe(self, kind: str, subject: str, attribute: str, node: int, revision: int) -> None:
         self.observed.setdefault((kind, subject, attribute, node), revision)
 
+    def _observe_premises(self, subject: str, attribute: str) -> None:
+        """Track the slots a conditional fact's status depends on (read revisions first)."""
+        db = self._store.db
+        for p_subject, p_attribute in facts.premise_closure(db, subject, attribute):
+            revision = graph.current_revision(db, graph.SLOT, p_subject, p_attribute, 0)
+            self._observe(graph.SLOT, p_subject, p_attribute, 0, revision)
+
+    def status(self, subject: str, attribute: str) -> FactStatus:
+        """Whether a slot's live value may be treated as current, tracked like :meth:`slot`."""
+        db = self._store.db
+        revision = graph.current_revision(db, graph.SLOT, subject, attribute, 0)
+        self._observe(graph.SLOT, subject, attribute, 0, revision)
+        self._observe_premises(subject, attribute)
+        return facts.status(db, subject, attribute)
+
     def slot(self, subject: str, attribute: str, default: Any = None) -> Any:
-        """Live value of a slot. Missing and retracted slots return ``default`` but are tracked."""
+        """Live value of a slot. Missing and retracted slots return ``default`` but are tracked.
+
+        Reading a conditional fact also tracks its premises, so a premise change
+        invalidates the reader even though the fact's own value did not move.
+        """
+        self._observe_premises(subject, attribute)
         row = self._store.db.execute(
             "SELECT h.changed_revision, v.op, v.value FROM slots s"
             " JOIN slot_heads h ON h.slot_id = s.slot_id"
@@ -79,6 +100,8 @@ class Context:
             " WHERE s.subject=? AND v.op='assert' ORDER BY s.attribute",
             (subject,),
         ).fetchall()
+        for r in rows:
+            self._observe_premises(subject, r["attribute"])
         return {r["attribute"]: json.loads(r["value"]) for r in rows}
 
     def history(self, subject: str, attribute: str) -> list[dict[str, Any]]:
@@ -95,6 +118,7 @@ class Context:
             (subject, attribute),
         ).fetchone()
         self._observe(graph.SLOT, subject, attribute, 0, int(head[0]) if head else 0)
+        self._observe_premises(subject, attribute)
         rows = db.execute(
             "SELECT v.op, v.value, e.event_key, e.occurred_at FROM slots s"
             " JOIN fact_versions v ON v.slot_id = s.slot_id"
@@ -113,6 +137,38 @@ class Context:
                 {"op": r["op"], "value": value, "source": r["event_key"], "at": r["occurred_at"]}
             )
         return changes
+
+    def subject_history(self, subject: str) -> dict[str, list[dict[str, Any]]]:
+        """Value changes of every slot of a subject, retracted ones included, oldest first.
+
+        Tracked like :meth:`subject` (a new or changed slot invalidates the reader);
+        entries are shaped like :meth:`history`'s.
+        """
+        db = self._store.db
+        revision = graph.current_revision(db, graph.SUBJECT, subject, "", 0)
+        self._observe(graph.SUBJECT, subject, "", 0, revision)  # read revision first: safe
+        rows = db.execute(
+            "SELECT s.attribute, v.op, v.value, e.event_key, e.occurred_at FROM slots s"
+            " JOIN fact_versions v ON v.slot_id = s.slot_id"
+            " JOIN events e ON e.seq = v.source_seq"
+            " WHERE s.subject=? ORDER BY s.attribute, v.version_id",
+            (subject,),
+        ).fetchall()
+        out: dict[str, list[dict[str, Any]]] = {}
+        last: dict[str, tuple[str, str | None]] = {}
+        for r in rows:
+            attribute = r["attribute"]
+            if attribute not in out:
+                out[attribute] = []
+                self._observe_premises(subject, attribute)
+            if last.get(attribute) == (r["op"], r["value"]):
+                continue
+            last[attribute] = (r["op"], r["value"])
+            value = json.loads(r["value"]) if r["value"] is not None else None
+            out[attribute].append(
+                {"op": r["op"], "value": value, "source": r["event_key"], "at": r["occurred_at"]}
+            )
+        return out
 
     def session(self, session_id: str) -> list[dict[str, Any]]:
         """Events of a session in arrival order, tracked: appending to it invalidates the reader.

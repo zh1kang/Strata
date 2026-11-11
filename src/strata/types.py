@@ -31,6 +31,7 @@ DIRTY_STATES = tuple(s for s in NodeState if s.dirty)
 class Policy(StrEnum):
     FIFO = "fifo"
     PRIORITY = "priority"
+    DEMAND = "demand"
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,16 @@ class FactWrite:
       or retracted slot it writes nothing.
     * ``"retract"`` retracts the slot (``value`` is ignored); on a missing or
       already retracted slot it writes nothing.
+    * ``"contingent"`` writes nothing to the slot yet. It records what the slot
+      becomes once a premise changes: when any of ``premises`` later moves away
+      from the value it had when the contingency was written, the slot is set to
+      ``value`` in that same transaction (sourced to the event that changed the
+      premise) and the contingency is used up. Requires ``premises``.
+
+    ``premises`` names slots, as ``(subject, attribute)`` pairs, that this fact
+    assumes. The value each premise has when the batch commits is recorded with
+    the new version; once a premise has another value, or is itself unverified,
+    the fact is served as ``unverified`` instead of ``current``.
 
     ``add`` and ``remove`` read the head inside the write transaction, so
     concurrent additions to one slot never lose an item. A write that writes
@@ -80,6 +91,7 @@ class FactWrite:
     source_key: str
     expected_version: int | None = None
     mode: str = "set"
+    premises: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -120,7 +132,7 @@ class Budget:
 @dataclass(frozen=True)
 class RecallItem:
     text: str
-    status: str  # "current" | "stale" | "raw"
+    status: str  # "current" | "stale" | "unverified" | "raw"
     kind: str  # "fact", "event", or a node kind
     key: str
     score: float
@@ -166,6 +178,19 @@ class NodeInfo:
     access_count: int
     measured_cost: float | None = None  # last cost charged with ``Context.charge``
     keywords: str = ""  # static search text given to ``define``
+    invalidations: int = 0  # times a valid value of the node was invalidated
+
+
+@dataclass(frozen=True)
+class FactStatus:
+    """Whether a live fact may be served as current.
+
+    ``reasons`` explains an ``unverified`` status, one entry per premise that
+    changed (``"<premise> changed from <old> to <new>"``) or is itself unverified.
+    """
+
+    status: str  # "current" | "unverified"
+    reasons: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

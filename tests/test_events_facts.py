@@ -183,8 +183,22 @@ def test_add_to_a_scalar_and_no_op_removals(mem: Memory) -> None:
         mem.assert_facts([FactWrite("user", "city", "x", "e3", mode="append")])
 
 
+def downgrade_to_v3(path: str) -> None:
+    """Rewrite a fresh database into the version-3 layout (no premises or invalidation counts)."""
+    raw = sqlite3.connect(path)
+    raw.executescript(
+        """
+        DROP TABLE fact_premises;
+        ALTER TABLE nodes DROP COLUMN invalidations;
+        UPDATE meta SET value='3' WHERE key='schema_version';
+        """
+    )
+    raw.close()
+
+
 def downgrade_to_v2(path: str) -> None:
     """Rewrite a fresh database into the version-2 layout (no dates, sessions, or stemming)."""
+    downgrade_to_v3(path)
     raw = sqlite3.connect(path)
     raw.executescript(
         """
@@ -227,7 +241,7 @@ def test_version_2_database_is_migrated_in_place(db_path: str) -> None:
         m.maintain()
     downgrade_to_v2(db_path)
     with Memory.open(db_path) as m:
-        assert m.store.db.execute("SELECT value FROM meta").fetchone()[0] == "3"
+        assert m.store.db.execute("SELECT value FROM meta").fetchone()[0] == "4"
         assert [i.key for i in m.search_events("dogs")] == ["e0"]  # stemmed + fact-expanded
         assert m.event("e0").at is None and m.get_fact("user", "pet_dog").value == "Rex"
         assert m.node("n", "k").state == "valid" and m.node("n", "k").measured_cost is None

@@ -15,6 +15,9 @@ Safety rules:
   that budget, before deciding what to withhold.
 * ``since`` / ``until`` keep only events, and facts whose source event, dated
   inside ``[since, until)``. Derived nodes are not filtered.
+* A fact whose premise changed (see :mod:`strata.facts`) is returned labelled
+  ``unverified`` with the reason, never as ``current``, and triggers the fallback
+  like a withheld node does.
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ import sqlite3
 from itertools import zip_longest
 from typing import Any
 
-from . import graph, index
+from . import facts, graph, index
 from .errors import NotFoundError
 from .events import normalise_time
 from .maintenance import Engine
@@ -52,9 +55,13 @@ class Retriever:
         if row is None:
             return None
         value = json.loads(row["value"])
+        text = f"{row['subject']}.{row['attribute']} = {row['value']}"
+        state = facts.status(self.store.db, row["subject"], row["attribute"])
+        if state.status != "current":
+            text += f" (unverified: {'; '.join(state.reasons)})"
         return RecallItem(
-            f"{row['subject']}.{row['attribute']} = {row['value']}",
-            "current",
+            text,
+            state.status,
             "fact",
             f"{row['subject']}/{row['attribute']}",
             score,
@@ -193,12 +200,18 @@ class Retriever:
 
         current: list[RecallItem] = []
         stale: list[RecallItem] = []
+        unverified: list[RecallItem] = []
         suppressed = 0
         for kind, ref, score in hits:
             if kind == "fact":
                 item = self._fact_item(ref, score)
-                if item is not None and in_window(item.at):
+                if item is None or not in_window(item.at):
+                    continue
+                if item.status == "current":
                     current.append(item)
+                else:
+                    suppressed += 1
+                    unverified.append(item)
                 continue
             row = self._node_row(ref)
             if row is None:
@@ -213,11 +226,16 @@ class Retriever:
             self.engine.touch(node_ids)
 
         warnings: list[str] = []
-        if suppressed:
+        if suppressed > len(unverified):
             warnings.append(
-                f"{suppressed} derived item(s) withheld because they are not up to date"
+                f"{suppressed - len(unverified)} derived item(s) withheld because they are not"
+                " up to date"
             )
-        current, stale = current[:limit], stale[:limit]
+        if unverified:
+            warnings.append(
+                f"{len(unverified)} fact(s) flagged unverified because a premise changed"
+            )
+        current, stale, unverified = current[:limit], stale[:limit], unverified[:limit]
         use_fallback = fallback and (not current or suppressed > 0)
         raw: list[RecallItem] = []
         quota = max(events, limit if use_fallback else 0)
@@ -231,7 +249,7 @@ class Retriever:
                 warnings.append("no raw event evidence matched the query")
             else:
                 warnings.append("no current memory or raw evidence matched")
-        items = current + stale + raw
+        items = current + unverified + stale + raw
         return RecallResult(tuple(items), use_fallback, suppressed, refreshed, tuple(warnings))
 
     def _is_dirty(self, node_id: int) -> bool:

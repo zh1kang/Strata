@@ -161,6 +161,7 @@ class Engine:
             int(row["access_count"]),
             row["measured_cost"],
             row["keywords"],
+            int(row["invalidations"]),
         )
 
     def get_node(self, kind: str, key: str) -> NodeInfo:

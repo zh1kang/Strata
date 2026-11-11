@@ -1,6 +1,6 @@
 """SQLite schema. Bump SCHEMA_VERSION on any incompatible change."""
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -44,6 +44,20 @@ CREATE TABLE IF NOT EXISTS fact_versions (
   revision INTEGER NOT NULL REFERENCES revisions(revision)
 );
 CREATE INDEX IF NOT EXISTS fact_versions_slot ON fact_versions(slot_id, version_id);
+-- Indexing an event reads every fact asserted from it.
+CREATE INDEX IF NOT EXISTS fact_versions_source ON fact_versions(source_seq, version_id);
+
+-- Slots a fact version assumes, with the premise's encoded value when the version was
+-- written (NULL if the premise was missing or retracted). A fact whose premise now has
+-- another value is unverified, never current.
+CREATE TABLE IF NOT EXISTS fact_premises (
+  version_id INTEGER NOT NULL REFERENCES fact_versions(version_id),
+  subject TEXT NOT NULL,
+  attribute TEXT NOT NULL,
+  value TEXT,
+  PRIMARY KEY (version_id, subject, attribute)
+);
+CREATE INDEX IF NOT EXISTS fact_premises_slot ON fact_premises(subject, attribute);
 
 -- changed_revision only advances when the effective value changes, so
 -- re-asserting an identical value never invalidates dependents.
@@ -77,6 +91,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   access_count INTEGER NOT NULL DEFAULT 0,
   measured_cost REAL CHECK (measured_cost IS NULL OR measured_cost >= 0),
   keywords TEXT NOT NULL DEFAULT '',  -- static search text, indexed even before the first build
+  invalidations INTEGER NOT NULL DEFAULT 0,  -- times a valid value was invalidated
   UNIQUE (kind, node_key)
 );
 CREATE INDEX IF NOT EXISTS nodes_state ON nodes(state);
@@ -152,4 +167,18 @@ INSERT INTO search_v3(rowid, text) SELECT rowid, text FROM search;
 DROP TABLE search;
 ALTER TABLE search_v3 RENAME TO search;
 UPDATE meta SET value='3' WHERE key='schema_version';
+"""
+
+# Upgrade of a version-3 database: premises of conditional facts and node invalidation counts.
+MIGRATE_3_TO_4 = """
+CREATE TABLE fact_premises (
+  version_id INTEGER NOT NULL REFERENCES fact_versions(version_id),
+  subject TEXT NOT NULL,
+  attribute TEXT NOT NULL,
+  value TEXT,
+  PRIMARY KEY (version_id, subject, attribute)
+);
+CREATE INDEX fact_premises_slot ON fact_premises(subject, attribute);
+ALTER TABLE nodes ADD COLUMN invalidations INTEGER NOT NULL DEFAULT 0;
+UPDATE meta SET value='4' WHERE key='schema_version';
 """

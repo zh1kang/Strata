@@ -61,8 +61,8 @@ def invalidate_nodes(db: sqlite3.Connection, revision: int, direct: Iterable[int
     if seeds == "[]":
         return
     db.execute(
-        "UPDATE nodes SET state='stale', attempts=0, last_error=NULL,"
-        " dirty_since=COALESCE(dirty_since, ?) "
+        "UPDATE nodes SET invalidations = invalidations + (state='valid'), state='stale',"
+        " attempts=0, last_error=NULL, dirty_since=COALESCE(dirty_since, ?) "
         "WHERE node_id IN (SELECT value FROM json_each(?))"
         " AND state IN ('valid','suspect','stale','failed')",
         (revision, seeds),
@@ -74,7 +74,8 @@ def invalidate_nodes(db: sqlite3.Connection, revision: int, direct: Iterable[int
         " UNION "
         " SELECT d.node_id FROM node_deps d JOIN down ON d.dep_kind='node'"
         "  AND d.dep_node = down.node_id) "
-        "UPDATE nodes SET state='suspect', dirty_since=COALESCE(dirty_since, ?) "
+        "UPDATE nodes SET state='suspect', invalidations = invalidations + 1,"
+        " dirty_since=COALESCE(dirty_since, ?) "
         "WHERE node_id IN (SELECT node_id FROM down) AND state='valid'",
         (seeds, revision),
     )
