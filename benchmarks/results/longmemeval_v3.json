@@ -1,0 +1,2965 @@
+{
+  "tag": "v3",
+  "dataset": "LongMemEval-S cleaned (xiaowu0162/longmemeval-cleaned, longmemeval_s_cleaned.json)",
+  "dataset_sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+  "n_questions": 500,
+  "by_type_n": {
+    "multi-session": 133,
+    "temporal-reasoning": 133,
+    "knowledge-update": 78,
+    "single-session-user": 70,
+    "single-session-assistant": 56,
+    "single-session-preference": 30
+  },
+  "n_abstention_questions": 30,
+  "models": {
+    "extraction": "cursor:composer-2.5-fast",
+    "judge": "cursor:cursor-grok-4.6-low-fast",
+    "judge2": "cursor:composer-2.5-fast",
+    "answerers": [
+      "cursor:composer-2.5-fast"
+    ]
+  },
+  "config": {
+    "context_items": 10,
+    "strata_recall_events": 20,
+    "raw_search_item_chars": 3000,
+    "snippet_chars": 1500,
+    "context_chars": 24000,
+    "window_events": 10,
+    "derived_nodes": "topic per extracted topic, timeline per changed single-valued fact",
+    "answer_prompt": "note-taking (Chain-of-Note); judges see only the final ANSWER line",
+    "background_budget_per_session": 1.0,
+    "lazy_budget_per_query": 8.0,
+    "digest_model": "cursor:composer-2.5-fast",
+    "digest_background_tokens_per_session": 1500.0,
+    "digest_lazy_tokens_per_query": 6000.0
+  },
+  "systems": {
+    "raw_search": {
+      "questions": 500,
+      "retrieval_ms": {
+        "mean": 0.715621410869062,
+        "p50": 0.5490831099450588,
+        "p95": 1.5952500980347395
+      },
+      "fallback_used": {
+        "k": 500,
+        "n": 500,
+        "rate": 1.0,
+        "ci95": [
+          0.9923753814690964,
+          0.9999999999999999
+        ]
+      },
+      "queries_with_withheld_nodes": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "queries_with_dirty_nodes": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "stale_items_served": 0,
+      "queries_serving_stale": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "evidence_in_context": {
+        "k": 454,
+        "n": 479,
+        "rate": 0.9478079331941545,
+        "ci95": [
+          0.9240888457480144,
+          0.9644012926327713
+        ]
+      },
+      "lazy_refreshed_nodes": 0,
+      "maintenance_totals": {
+        "jobs": 0.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 0.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 0.0
+      },
+      "maintenance_per_question": {
+        "jobs": 0.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 0.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 0.0
+      },
+      "facts_asserted": 0,
+      "assert_failures": 0,
+      "timelines_per_question": 0.0,
+      "topics_per_question": 0.0,
+      "time_window_questions": 0,
+      "memory_tokens_per_question": 0.0,
+      "ingest_s_mean": 0.04464280190691352,
+      "context_chars_mean": 21171.976
+    },
+    "raw_search_tuned": {
+      "questions": 500,
+      "retrieval_ms": {
+        "mean": 0.9455804987810552,
+        "p50": 0.7622088305652142,
+        "p95": 1.726167043671012
+      },
+      "fallback_used": {
+        "k": 500,
+        "n": 500,
+        "rate": 1.0,
+        "ci95": [
+          0.9923753814690964,
+          0.9999999999999999
+        ]
+      },
+      "queries_with_withheld_nodes": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "queries_with_dirty_nodes": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "stale_items_served": 0,
+      "queries_serving_stale": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "evidence_in_context": {
+        "k": 463,
+        "n": 479,
+        "rate": 0.9665970772442589,
+        "ci95": [
+          0.946432798920393,
+          0.9793366459658804
+        ]
+      },
+      "lazy_refreshed_nodes": 0,
+      "maintenance_totals": {
+        "jobs": 0.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 0.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 0.0
+      },
+      "maintenance_per_question": {
+        "jobs": 0.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 0.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 0.0
+      },
+      "facts_asserted": 0,
+      "assert_failures": 0,
+      "timelines_per_question": 0.0,
+      "topics_per_question": 0.0,
+      "time_window_questions": 59,
+      "memory_tokens_per_question": 0.0,
+      "ingest_s_mean": 0.039064717921894046,
+      "context_chars_mean": 23074.92
+    },
+    "strata_no_nodes": {
+      "questions": 500,
+      "retrieval_ms": {
+        "mean": 1.2386725833639503,
+        "p50": 1.0778747964650393,
+        "p95": 2.2011669352650642
+      },
+      "fallback_used": {
+        "k": 2,
+        "n": 500,
+        "rate": 0.004,
+        "ci95": [
+          0.0010976075412372681,
+          0.014466014041418871
+        ]
+      },
+      "queries_with_withheld_nodes": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "queries_with_dirty_nodes": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "stale_items_served": 0,
+      "queries_serving_stale": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "evidence_in_context": {
+        "k": 469,
+        "n": 479,
+        "rate": 0.9791231732776617,
+        "ci95": [
+          0.9620008353553955,
+          0.9886214805345361
+        ]
+      },
+      "lazy_refreshed_nodes": 0,
+      "maintenance_totals": {
+        "jobs": 0.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 0.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 0.0
+      },
+      "maintenance_per_question": {
+        "jobs": 0.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 0.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 0.0
+      },
+      "facts_asserted": 67860,
+      "assert_failures": 0,
+      "timelines_per_question": 0.0,
+      "topics_per_question": 0.0,
+      "time_window_questions": 59,
+      "memory_tokens_per_question": 51008.714,
+      "ingest_s_mean": 0.08362545136129483,
+      "context_chars_mean": 23045.978
+    },
+    "strata_eager": {
+      "questions": 500,
+      "retrieval_ms": {
+        "mean": 1.6288481997326016,
+        "p50": 1.4862501993775368,
+        "p95": 2.8874999843537807
+      },
+      "fallback_used": {
+        "k": 2,
+        "n": 500,
+        "rate": 0.004,
+        "ci95": [
+          0.0010976075412372681,
+          0.014466014041418871
+        ]
+      },
+      "queries_with_withheld_nodes": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "queries_with_dirty_nodes": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "stale_items_served": 0,
+      "queries_serving_stale": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "evidence_in_context": {
+        "k": 468,
+        "n": 479,
+        "rate": 0.9770354906054279,
+        "ci95": [
+          0.959350513459097,
+          0.9871296572635583
+        ]
+      },
+      "lazy_refreshed_nodes": 0,
+      "maintenance_totals": {
+        "jobs": 40963.0,
+        "verified": 0.0,
+        "cutoffs": 1.0,
+        "cost": 40963.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 40962.0
+      },
+      "maintenance_per_question": {
+        "jobs": 81.926,
+        "verified": 0.0,
+        "cutoffs": 0.002,
+        "cost": 81.926,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 81.924
+      },
+      "facts_asserted": 67860,
+      "assert_failures": 0,
+      "timelines_per_question": 11.234,
+      "topics_per_question": 8.488,
+      "time_window_questions": 59,
+      "memory_tokens_per_question": 51008.714,
+      "ingest_s_mean": 0.13505110342334956,
+      "context_chars_mean": 23091.084
+    },
+    "strata_priority": {
+      "questions": 500,
+      "retrieval_ms": {
+        "mean": 1.6502777338027954,
+        "p50": 1.3895828742533922,
+        "p95": 3.135999897494912
+      },
+      "fallback_used": {
+        "k": 367,
+        "n": 500,
+        "rate": 0.734,
+        "ci95": [
+          0.6935914395923122,
+          0.7708402389352251
+        ]
+      },
+      "queries_with_withheld_nodes": {
+        "k": 365,
+        "n": 500,
+        "rate": 0.73,
+        "ci95": [
+          0.6894405695613621,
+          0.7670521059144222
+        ]
+      },
+      "queries_with_dirty_nodes": {
+        "k": 488,
+        "n": 500,
+        "rate": 0.976,
+        "ci95": [
+          0.9585225403081018,
+          0.9862188228504781
+        ]
+      },
+      "stale_items_served": 0,
+      "queries_serving_stale": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "evidence_in_context": {
+        "k": 468,
+        "n": 479,
+        "rate": 0.9770354906054279,
+        "ci95": [
+          0.959350513459097,
+          0.9871296572635583
+        ]
+      },
+      "lazy_refreshed_nodes": 0,
+      "maintenance_totals": {
+        "jobs": 22078.0,
+        "verified": 0.0,
+        "cutoffs": 1.0,
+        "cost": 22078.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 108486.0,
+        "dirty": 4581.0,
+        "write_amplification": 22077.0
+      },
+      "maintenance_per_question": {
+        "jobs": 44.156,
+        "verified": 0.0,
+        "cutoffs": 0.002,
+        "cost": 44.156,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 216.972,
+        "dirty": 9.162,
+        "write_amplification": 44.154
+      },
+      "facts_asserted": 67860,
+      "assert_failures": 0,
+      "timelines_per_question": 11.234,
+      "topics_per_question": 8.488,
+      "time_window_questions": 59,
+      "memory_tokens_per_question": 51008.714,
+      "ingest_s_mean": 0.12216889732796699,
+      "context_chars_mean": 23077.656
+    },
+    "strata_lazy": {
+      "questions": 500,
+      "retrieval_ms": {
+        "mean": 3.963481582235545,
+        "p50": 3.493750002235174,
+        "p95": 8.202791912481189
+      },
+      "fallback_used": {
+        "k": 16,
+        "n": 500,
+        "rate": 0.032,
+        "ci95": [
+          0.01979134135128301,
+          0.05134530159364255
+        ]
+      },
+      "queries_with_withheld_nodes": {
+        "k": 14,
+        "n": 500,
+        "rate": 0.028,
+        "ci95": [
+          0.01675081930862122,
+          0.04644682058455155
+        ]
+      },
+      "queries_with_dirty_nodes": {
+        "k": 500,
+        "n": 500,
+        "rate": 1.0,
+        "ci95": [
+          0.9923753814690964,
+          0.9999999999999999
+        ]
+      },
+      "stale_items_served": 0,
+      "queries_serving_stale": {
+        "k": 0,
+        "n": 500,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.007624618530903363
+        ]
+      },
+      "evidence_in_context": {
+        "k": 467,
+        "n": 479,
+        "rate": 0.9749478079331941,
+        "ci95": [
+          0.9567257816150362,
+          0.9856122439403426
+        ]
+      },
+      "lazy_refreshed_nodes": 1429,
+      "maintenance_totals": {
+        "jobs": 0.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 0.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 0.0
+      },
+      "maintenance_per_question": {
+        "jobs": 0.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 0.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 0.0
+      },
+      "facts_asserted": 67860,
+      "assert_failures": 0,
+      "timelines_per_question": 11.234,
+      "topics_per_question": 8.488,
+      "time_window_questions": 59,
+      "memory_tokens_per_question": 51008.714,
+      "ingest_s_mean": 0.09380975423241034,
+      "context_chars_mean": 23052.286
+    },
+    "stale_control": {
+      "questions": 500,
+      "retrieval_ms": {
+        "mean": 1.720267684198916,
+        "p50": 1.4640840236097574,
+        "p95": 3.0651669949293137
+      },
+      "fallback_used": {
+        "k": 367,
+        "n": 500,
+        "rate": 0.734,
+        "ci95": [
+          0.6935914395923122,
+          0.7708402389352251
+        ]
+      },
+      "queries_with_withheld_nodes": {
+        "k": 365,
+        "n": 500,
+        "rate": 0.73,
+        "ci95": [
+          0.6894405695613621,
+          0.7670521059144222
+        ]
+      },
+      "queries_with_dirty_nodes": {
+        "k": 488,
+        "n": 500,
+        "rate": 0.976,
+        "ci95": [
+          0.9585225403081018,
+          0.9862188228504781
+        ]
+      },
+      "stale_items_served": 828,
+      "queries_serving_stale": {
+        "k": 359,
+        "n": 500,
+        "rate": 0.718,
+        "ci95": [
+          0.6770114417638189,
+          0.7556642245567071
+        ]
+      },
+      "evidence_in_context": {
+        "k": 467,
+        "n": 479,
+        "rate": 0.9749478079331941,
+        "ci95": [
+          0.9567257816150362,
+          0.9856122439403426
+        ]
+      },
+      "lazy_refreshed_nodes": 0,
+      "maintenance_totals": {
+        "jobs": 22078.0,
+        "verified": 0.0,
+        "cutoffs": 1.0,
+        "cost": 22078.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 108486.0,
+        "dirty": 4581.0,
+        "write_amplification": 22077.0
+      },
+      "maintenance_per_question": {
+        "jobs": 44.156,
+        "verified": 0.0,
+        "cutoffs": 0.002,
+        "cost": 44.156,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 216.972,
+        "dirty": 9.162,
+        "write_amplification": 44.154
+      },
+      "facts_asserted": 67860,
+      "assert_failures": 0,
+      "timelines_per_question": 11.234,
+      "topics_per_question": 8.488,
+      "time_window_questions": 59,
+      "memory_tokens_per_question": 51008.714,
+      "ingest_s_mean": 0.12089389590360224,
+      "context_chars_mean": 23089.308
+    },
+    "digest_eager": {
+      "questions": 40,
+      "retrieval_ms": {
+        "mean": 4.429116647224873,
+        "p50": 3.7977921310812235,
+        "p95": 8.305083960294724
+      },
+      "fallback_used": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "ci95": [
+          -6.938893903907228e-18,
+          0.08762453925039232
+        ]
+      },
+      "queries_with_withheld_nodes": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "ci95": [
+          -6.938893903907228e-18,
+          0.08762453925039232
+        ]
+      },
+      "queries_with_dirty_nodes": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "ci95": [
+          -6.938893903907228e-18,
+          0.08762453925039232
+        ]
+      },
+      "stale_items_served": 0,
+      "queries_serving_stale": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "ci95": [
+          -6.938893903907228e-18,
+          0.08762453925039232
+        ]
+      },
+      "evidence_in_context": {
+        "k": 38,
+        "n": 38,
+        "rate": 1.0,
+        "ci95": [
+          0.90818706741616,
+          0.9999999999999999
+        ]
+      },
+      "lazy_refreshed_nodes": 0,
+      "maintenance_totals": {
+        "jobs": 6124.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 4441954.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 6124.0
+      },
+      "maintenance_per_question": {
+        "jobs": 153.1,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 111048.85,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 153.1
+      },
+      "facts_asserted": 5386,
+      "assert_failures": 0,
+      "timelines_per_question": 12.275,
+      "topics_per_question": 8.7,
+      "time_window_questions": 4,
+      "memory_tokens_per_question": 164408.55,
+      "ingest_s_mean": 480.17810540738867,
+      "context_chars_mean": 23381.25
+    },
+    "digest_priority": {
+      "questions": 40,
+      "retrieval_ms": {
+        "mean": 1.9065042375586927,
+        "p50": 1.6483329236507416,
+        "p95": 3.7367078475654125
+      },
+      "fallback_used": {
+        "k": 37,
+        "n": 40,
+        "rate": 0.925,
+        "ci95": [
+          0.8013546984090248,
+          0.9741644432281419
+        ]
+      },
+      "queries_with_withheld_nodes": {
+        "k": 37,
+        "n": 40,
+        "rate": 0.925,
+        "ci95": [
+          0.8013546984090248,
+          0.9741644432281419
+        ]
+      },
+      "queries_with_dirty_nodes": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "ci95": [
+          0.9123754607496077,
+          1.0
+        ]
+      },
+      "stale_items_served": 0,
+      "queries_serving_stale": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "ci95": [
+          -6.938893903907228e-18,
+          0.08762453925039232
+        ]
+      },
+      "evidence_in_context": {
+        "k": 38,
+        "n": 38,
+        "rate": 1.0,
+        "ci95": [
+          0.90818706741616,
+          0.9999999999999999
+        ]
+      },
+      "lazy_refreshed_nodes": 0,
+      "maintenance_totals": {
+        "jobs": 4626.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 1400509.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 6693.0,
+        "dirty": 198.0,
+        "write_amplification": 4626.0
+      },
+      "maintenance_per_question": {
+        "jobs": 115.65,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 35012.725,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 167.325,
+        "dirty": 4.95,
+        "write_amplification": 115.65
+      },
+      "facts_asserted": 5386,
+      "assert_failures": 0,
+      "timelines_per_question": 12.275,
+      "topics_per_question": 8.7,
+      "time_window_questions": 4,
+      "memory_tokens_per_question": 88372.425,
+      "ingest_s_mean": 0.1926930813351646,
+      "context_chars_mean": 23171.2
+    },
+    "digest_lazy": {
+      "questions": 40,
+      "retrieval_ms": {
+        "mean": 6.098556244978681,
+        "p50": 5.130334058776498,
+        "p95": 11.879584053531289
+      },
+      "fallback_used": {
+        "k": 7,
+        "n": 40,
+        "rate": 0.175,
+        "ci95": [
+          0.08745302996883066,
+          0.3195029205439244
+        ]
+      },
+      "queries_with_withheld_nodes": {
+        "k": 7,
+        "n": 40,
+        "rate": 0.175,
+        "ci95": [
+          0.08745302996883066,
+          0.3195029205439244
+        ]
+      },
+      "queries_with_dirty_nodes": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "ci95": [
+          0.9123754607496077,
+          1.0
+        ]
+      },
+      "stale_items_served": 0,
+      "queries_serving_stale": {
+        "k": 0,
+        "n": 40,
+        "rate": 0.0,
+        "ci95": [
+          -6.938893903907228e-18,
+          0.08762453925039232
+        ]
+      },
+      "evidence_in_context": {
+        "k": 38,
+        "n": 38,
+        "rate": 1.0,
+        "ci95": [
+          0.90818706741616,
+          0.9999999999999999
+        ]
+      },
+      "lazy_refreshed_nodes": 177,
+      "maintenance_totals": {
+        "jobs": 0.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 0.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 0.0
+      },
+      "maintenance_per_question": {
+        "jobs": 0.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 0.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 0.0,
+        "unregistered": 0.0,
+        "skipped_budget": 0.0,
+        "dirty": 0.0,
+        "write_amplification": 0.0
+      },
+      "facts_asserted": 5386,
+      "assert_failures": 0,
+      "timelines_per_question": 12.275,
+      "topics_per_question": 8.7,
+      "time_window_questions": 4,
+      "memory_tokens_per_question": 57225.6,
+      "ingest_s_mean": 0.11541167175746522,
+      "context_chars_mean": 23235.425
+    },
+    "digest_stale": {
+      "questions": 40,
+      "retrieval_ms": {
+        "mean": 2.3959895712323487,
+        "p50": 2.087790984660387,
+        "p95": 5.2840830758214
+      },
+      "fallback_used": {
+        "k": 37,
+        "n": 40,
+        "rate": 0.925,
+        "ci95": [
+          0.8013546984090248,
+          0.9741644432281419
+        ]
+      },
+      "queries_with_withheld_nodes": {
+        "k": 37,
+        "n": 40,
+        "rate": 0.925,
+        "ci95": [
+          0.8013546984090248,
+          0.9741644432281419
+        ]
+      },
+      "queries_with_dirty_nodes": {
+        "k": 40,
+        "n": 40,
+        "rate": 1.0,
+        "ci95": [
+          0.9123754607496077,
+          1.0
+        ]
+      },
+      "stale_items_served": 130,
+      "queries_serving_stale": {
+        "k": 37,
+        "n": 40,
+        "rate": 0.925,
+        "ci95": [
+          0.8013546984090248,
+          0.9741644432281419
+        ]
+      },
+      "evidence_in_context": {
+        "k": 37,
+        "n": 38,
+        "rate": 0.9736842105263158,
+        "ci95": [
+          0.8650482156319974,
+          0.9953395324464698
+        ]
+      },
+      "lazy_refreshed_nodes": 0,
+      "maintenance_totals": {
+        "jobs": 4734.0,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 1568172.0,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 46.0,
+        "unregistered": 0.0,
+        "skipped_budget": 5080.0,
+        "dirty": 213.0,
+        "write_amplification": 4734.0
+      },
+      "maintenance_per_question": {
+        "jobs": 118.35,
+        "verified": 0.0,
+        "cutoffs": 0.0,
+        "cost": 39204.3,
+        "wasted_cost": 0.0,
+        "conflicts": 0.0,
+        "failures": 0.0,
+        "lease_busy": 0.0,
+        "not_ready": 1.15,
+        "unregistered": 0.0,
+        "skipped_budget": 127.0,
+        "dirty": 5.325,
+        "write_amplification": 118.35
+      },
+      "facts_asserted": 5386,
+      "assert_failures": 0,
+      "timelines_per_question": 12.275,
+      "topics_per_question": 8.7,
+      "time_window_questions": 4,
+      "memory_tokens_per_question": 92566.35,
+      "ingest_s_mean": 0.18190059158368968,
+      "context_chars_mean": 23485.1
+    }
+  },
+  "answerers": {
+    "cursor:composer-2.5-fast": {
+      "raw_search": {
+        "n": 500,
+        "accuracy": {
+          "k": 393,
+          "n": 500,
+          "rate": 0.786,
+          "ci95": [
+            0.7479411410548613,
+            0.819697577145462
+          ]
+        },
+        "task_averaged_accuracy": 0.8004940235203394,
+        "by_type": {
+          "knowledge-update": {
+            "k": 72,
+            "n": 78,
+            "rate": 0.9230769230769231,
+            "ci95": [
+              0.842165824059759,
+              0.9642700227467552
+            ]
+          },
+          "multi-session": {
+            "k": 76,
+            "n": 133,
+            "rate": 0.5714285714285714,
+            "ci95": [
+              0.4864828528600956,
+              0.652363813650673
+            ]
+          },
+          "single-session-assistant": {
+            "k": 55,
+            "n": 56,
+            "rate": 0.9821428571428571,
+            "ci95": [
+              0.9055414182080672,
+              0.9968408710355361
+            ]
+          },
+          "single-session-preference": {
+            "k": 18,
+            "n": 30,
+            "rate": 0.6,
+            "ci95": [
+              0.42320052498273836,
+              0.7540960567391659
+            ]
+          },
+          "single-session-user": {
+            "k": 64,
+            "n": 70,
+            "rate": 0.9142857142857143,
+            "ci95": [
+              0.825341230221722,
+              0.9601238734596715
+            ]
+          },
+          "temporal-reasoning": {
+            "k": 108,
+            "n": 133,
+            "rate": 0.8120300751879699,
+            "ci95": [
+              0.7372266616591409,
+              0.8693140394142168
+            ]
+          }
+        },
+        "accuracy_judge2": {
+          "k": 356,
+          "n": 500,
+          "rate": 0.712,
+          "ci95": [
+            0.6708097689717583,
+            0.7499573927711387
+          ]
+        },
+        "judge_agreement": {
+          "k": 455,
+          "n": 500,
+          "rate": 0.91,
+          "ci95": [
+            0.8816900083946269,
+            0.9320578044100325
+          ]
+        },
+        "knowledge_update_accuracy": {
+          "k": 67,
+          "n": 72,
+          "rate": 0.9305555555555556,
+          "ci95": [
+            0.847518240672898,
+            0.9699750611561773
+          ]
+        },
+        "knowledge_update_strict_current_only": {
+          "k": 43,
+          "n": 72,
+          "rate": 0.5972222222222222,
+          "ci95": [
+            0.4818046137128726,
+            0.702790647990467
+          ]
+        },
+        "knowledge_update_outdated_as_current": {
+          "k": 2,
+          "n": 72,
+          "rate": 0.027777777777777776,
+          "ci95": [
+            0.007650861466140468,
+            0.09574358168906721
+          ]
+        },
+        "knowledge_update_labels": {
+          "current_only": 43,
+          "current_with_outdated_mention": 24,
+          "outdated_as_current": 2,
+          "other_wrong": 1,
+          "abstained": 2
+        },
+        "abstention_questions_correct": {
+          "k": 28,
+          "n": 30,
+          "rate": 0.9333333333333333,
+          "ci95": [
+            0.7867618227892791,
+            0.9815233646723066
+          ]
+        },
+        "abstained_on_answerable": {
+          "k": 59,
+          "n": 470,
+          "rate": 0.125531914893617,
+          "ci95": [
+            0.09858135442514658,
+            0.15855436350253221
+          ]
+        },
+        "abstained_overall": {
+          "k": 85,
+          "n": 500,
+          "rate": 0.17,
+          "ci95": [
+            0.13961985448969885,
+            0.2054123937406974
+          ]
+        },
+        "answer_latency_s_mean": 8.3154478867203,
+        "answer_latency_s_p95": 17.637782499892637,
+        "in_tokens_mean": 4956.206,
+        "out_tokens_mean": 714.418,
+        "paired_diff": {}
+      },
+      "raw_search_tuned": {
+        "n": 500,
+        "accuracy": {
+          "k": 403,
+          "n": 500,
+          "rate": 0.806,
+          "ci95": [
+            0.7690596512561212,
+            0.838274082202966
+          ]
+        },
+        "task_averaged_accuracy": 0.7926932716406401,
+        "by_type": {
+          "knowledge-update": {
+            "k": 72,
+            "n": 78,
+            "rate": 0.9230769230769231,
+            "ci95": [
+              0.842165824059759,
+              0.9642700227467552
+            ]
+          },
+          "multi-session": {
+            "k": 94,
+            "n": 133,
+            "rate": 0.706766917293233,
+            "ci95": [
+              0.6244650873638766,
+              0.7774594735883484
+            ]
+          },
+          "single-session-assistant": {
+            "k": 52,
+            "n": 56,
+            "rate": 0.9285714285714286,
+            "ci95": [
+              0.830243171685138,
+              0.9718744187536204
+            ]
+          },
+          "single-session-preference": {
+            "k": 15,
+            "n": 30,
+            "rate": 0.5,
+            "ci95": [
+              0.33153851227173764,
+              0.6684614877282624
+            ]
+          },
+          "single-session-user": {
+            "k": 62,
+            "n": 70,
+            "rate": 0.8857142857142857,
+            "ci95": [
+              0.7903556803979788,
+              0.9409394161329738
+            ]
+          },
+          "temporal-reasoning": {
+            "k": 108,
+            "n": 133,
+            "rate": 0.8120300751879699,
+            "ci95": [
+              0.7372266616591409,
+              0.8693140394142168
+            ]
+          }
+        },
+        "accuracy_judge2": {
+          "k": 364,
+          "n": 500,
+          "rate": 0.728,
+          "ci95": [
+            0.6873666188831685,
+            0.7651565550667395
+          ]
+        },
+        "judge_agreement": {
+          "k": 457,
+          "n": 500,
+          "rate": 0.914,
+          "ci95": [
+            0.8861596159077154,
+            0.9355271999486967
+          ]
+        },
+        "knowledge_update_accuracy": {
+          "k": 67,
+          "n": 72,
+          "rate": 0.9305555555555556,
+          "ci95": [
+            0.847518240672898,
+            0.9699750611561773
+          ]
+        },
+        "knowledge_update_strict_current_only": {
+          "k": 43,
+          "n": 72,
+          "rate": 0.5972222222222222,
+          "ci95": [
+            0.4818046137128726,
+            0.702790647990467
+          ]
+        },
+        "knowledge_update_outdated_as_current": {
+          "k": 1,
+          "n": 72,
+          "rate": 0.013888888888888888,
+          "ci95": [
+            0.002455888640432169,
+            0.07456780284286987
+          ]
+        },
+        "knowledge_update_labels": {
+          "current_only": 43,
+          "abstained": 3,
+          "other_wrong": 1,
+          "current_with_outdated_mention": 24,
+          "outdated_as_current": 1
+        },
+        "abstention_questions_correct": {
+          "k": 28,
+          "n": 30,
+          "rate": 0.9333333333333333,
+          "ci95": [
+            0.7867618227892791,
+            0.9815233646723066
+          ]
+        },
+        "abstained_on_answerable": {
+          "k": 51,
+          "n": 470,
+          "rate": 0.10851063829787234,
+          "ci95": [
+            0.08350041365970533,
+            0.13986874599195886
+          ]
+        },
+        "abstained_overall": {
+          "k": 78,
+          "n": 500,
+          "rate": 0.156,
+          "ci95": [
+            0.12683030337229503,
+            0.19041543417696646
+          ]
+        },
+        "answer_latency_s_mean": 8.75942492159782,
+        "answer_latency_s_p95": 17.62453862489201,
+        "in_tokens_mean": 5483.742,
+        "out_tokens_mean": 747.168,
+        "paired_diff": {
+          "raw_search": {
+            "n": 500,
+            "mean": 0.02,
+            "ci95": [
+              -0.008,
+              0.048
+            ]
+          }
+        }
+      },
+      "strata_no_nodes": {
+        "n": 500,
+        "accuracy": {
+          "k": 415,
+          "n": 500,
+          "rate": 0.83,
+          "ci95": [
+            0.7945876062593026,
+            0.8603801455103012
+          ]
+        },
+        "task_averaged_accuracy": 0.8113753936122357,
+        "by_type": {
+          "knowledge-update": {
+            "k": 72,
+            "n": 78,
+            "rate": 0.9230769230769231,
+            "ci95": [
+              0.842165824059759,
+              0.9642700227467552
+            ]
+          },
+          "multi-session": {
+            "k": 94,
+            "n": 133,
+            "rate": 0.706766917293233,
+            "ci95": [
+              0.6244650873638766,
+              0.7774594735883484
+            ]
+          },
+          "single-session-assistant": {
+            "k": 49,
+            "n": 56,
+            "rate": 0.875,
+            "ci95": [
+              0.763742793023606,
+              0.9381100986103075
+            ]
+          },
+          "single-session-preference": {
+            "k": 16,
+            "n": 30,
+            "rate": 0.5333333333333333,
+            "ci95": [
+              0.3614201328152505,
+              0.6976787277587178
+            ]
+          },
+          "single-session-user": {
+            "k": 66,
+            "n": 70,
+            "rate": 0.9428571428571428,
+            "ci95": [
+              0.8620785266792448,
+              0.9775565841525897
+            ]
+          },
+          "temporal-reasoning": {
+            "k": 118,
+            "n": 133,
+            "rate": 0.8872180451127819,
+            "ci95": [
+              0.8222435047285265,
+              0.9304515821456404
+            ]
+          }
+        },
+        "accuracy_judge2": {
+          "k": 383,
+          "n": 500,
+          "rate": 0.766,
+          "ci95": [
+            0.7269477983375824,
+            0.8009959046039771
+          ]
+        },
+        "judge_agreement": {
+          "k": 454,
+          "n": 500,
+          "rate": 0.908,
+          "ci95": [
+            0.8794606777802376,
+            0.9303176334985452
+          ]
+        },
+        "knowledge_update_accuracy": {
+          "k": 67,
+          "n": 72,
+          "rate": 0.9305555555555556,
+          "ci95": [
+            0.847518240672898,
+            0.9699750611561773
+          ]
+        },
+        "knowledge_update_strict_current_only": {
+          "k": 48,
+          "n": 72,
+          "rate": 0.6666666666666666,
+          "ci95": [
+            0.5517938807199863,
+            0.7646551393428815
+          ]
+        },
+        "knowledge_update_outdated_as_current": {
+          "k": 3,
+          "n": 72,
+          "rate": 0.041666666666666664,
+          "ci95": [
+            0.01427054877259009,
+            0.11549464605452325
+          ]
+        },
+        "knowledge_update_labels": {
+          "current_only": 48,
+          "outdated_as_current": 3,
+          "other_wrong": 2,
+          "current_with_outdated_mention": 17,
+          "abstained": 2
+        },
+        "abstention_questions_correct": {
+          "k": 27,
+          "n": 30,
+          "rate": 0.9,
+          "ci95": [
+            0.7437855868473339,
+            0.9654007400402839
+          ]
+        },
+        "abstained_on_answerable": {
+          "k": 37,
+          "n": 470,
+          "rate": 0.07872340425531915,
+          "ci95": [
+            0.0576509021532237,
+            0.10662678051541495
+          ]
+        },
+        "abstained_overall": {
+          "k": 63,
+          "n": 500,
+          "rate": 0.126,
+          "ci95": [
+            0.09973485690292784,
+            0.1579683577581879
+          ]
+        },
+        "answer_latency_s_mean": 8.745578728716355,
+        "answer_latency_s_p95": 18.26129929209128,
+        "in_tokens_mean": 5595.246,
+        "out_tokens_mean": 813.826,
+        "paired_diff": {
+          "raw_search": {
+            "n": 500,
+            "mean": 0.044,
+            "ci95": [
+              0.014,
+              0.076
+            ]
+          },
+          "raw_search_tuned": {
+            "n": 500,
+            "mean": 0.024,
+            "ci95": [
+              -0.002,
+              0.05
+            ]
+          }
+        }
+      },
+      "strata_eager": {
+        "n": 500,
+        "accuracy": {
+          "k": 423,
+          "n": 500,
+          "rate": 0.846,
+          "ci95": [
+            0.8117339597150403,
+            0.8749898042615746
+          ]
+        },
+        "task_averaged_accuracy": 0.8262981170875907,
+        "by_type": {
+          "knowledge-update": {
+            "k": 72,
+            "n": 78,
+            "rate": 0.9230769230769231,
+            "ci95": [
+              0.842165824059759,
+              0.9642700227467552
+            ]
+          },
+          "multi-session": {
+            "k": 101,
+            "n": 133,
+            "rate": 0.7593984962406015,
+            "ci95": [
+              0.6801275870095315,
+              0.8241050440032599
+            ]
+          },
+          "single-session-assistant": {
+            "k": 50,
+            "n": 56,
+            "rate": 0.8928571428571429,
+            "ci95": [
+              0.7853131324833861,
+              0.9499613254188092
+            ]
+          },
+          "single-session-preference": {
+            "k": 17,
+            "n": 30,
+            "rate": 0.5666666666666667,
+            "ci95": [
+              0.3919700954540873,
+              0.7262276256938489
+            ]
+          },
+          "single-session-user": {
+            "k": 65,
+            "n": 70,
+            "rate": 0.9285714285714286,
+            "ci95": [
+              0.8434438687669077,
+              0.9691062384897065
+            ]
+          },
+          "temporal-reasoning": {
+            "k": 118,
+            "n": 133,
+            "rate": 0.8872180451127819,
+            "ci95": [
+              0.8222435047285265,
+              0.9304515821456404
+            ]
+          }
+        },
+        "accuracy_judge2": {
+          "k": 387,
+          "n": 500,
+          "rate": 0.774,
+          "ci95": [
+            0.7353308968855181,
+            0.8084908121595469
+          ]
+        },
+        "judge_agreement": {
+          "k": 448,
+          "n": 500,
+          "rate": 0.896,
+          "ci95": [
+            0.8661551236448682,
+            0.9198061784786563
+          ]
+        },
+        "knowledge_update_accuracy": {
+          "k": 67,
+          "n": 72,
+          "rate": 0.9305555555555556,
+          "ci95": [
+            0.847518240672898,
+            0.9699750611561773
+          ]
+        },
+        "knowledge_update_strict_current_only": {
+          "k": 45,
+          "n": 72,
+          "rate": 0.625,
+          "ci95": [
+            0.5095268590406966,
+            0.7278099060064543
+          ]
+        },
+        "knowledge_update_outdated_as_current": {
+          "k": 5,
+          "n": 72,
+          "rate": 0.06944444444444445,
+          "ci95": [
+            0.03002493884382272,
+            0.15248175932710195
+          ]
+        },
+        "knowledge_update_labels": {
+          "current_only": 45,
+          "outdated_as_current": 5,
+          "current_with_outdated_mention": 20,
+          "abstained": 1,
+          "other_wrong": 1
+        },
+        "abstention_questions_correct": {
+          "k": 26,
+          "n": 30,
+          "rate": 0.8666666666666667,
+          "ci95": [
+            0.7031831605558306,
+            0.9469043057578189
+          ]
+        },
+        "abstained_on_answerable": {
+          "k": 33,
+          "n": 470,
+          "rate": 0.07021276595744681,
+          "ci95": [
+            0.050428920235427194,
+            0.09696548329520416
+          ]
+        },
+        "abstained_overall": {
+          "k": 59,
+          "n": 500,
+          "rate": 0.118,
+          "ci95": [
+            0.09259259259259259,
+            0.14923261596501758
+          ]
+        },
+        "answer_latency_s_mean": 9.098137479241938,
+        "answer_latency_s_p95": 19.210267833201215,
+        "in_tokens_mean": 5689.08,
+        "out_tokens_mean": 857.456,
+        "paired_diff": {
+          "raw_search": {
+            "n": 500,
+            "mean": 0.06,
+            "ci95": [
+              0.028,
+              0.096
+            ]
+          },
+          "raw_search_tuned": {
+            "n": 500,
+            "mean": 0.04,
+            "ci95": [
+              0.01,
+              0.068
+            ]
+          }
+        }
+      },
+      "strata_priority": {
+        "n": 500,
+        "accuracy": {
+          "k": 413,
+          "n": 500,
+          "rate": 0.826,
+          "ci95": [
+            0.790317702710052,
+            0.856711046007799
+          ]
+        },
+        "task_averaged_accuracy": 0.8125947882526829,
+        "by_type": {
+          "knowledge-update": {
+            "k": 70,
+            "n": 78,
+            "rate": 0.8974358974358975,
+            "ci95": [
+              0.8104536622780937,
+              0.9471072847219651
+            ]
+          },
+          "multi-session": {
+            "k": 96,
+            "n": 133,
+            "rate": 0.7218045112781954,
+            "ci95": [
+              0.6402386459141722,
+              0.7909167921982145
+            ]
+          },
+          "single-session-assistant": {
+            "k": 51,
+            "n": 56,
+            "rate": 0.9107142857142857,
+            "ci95": [
+              0.807437601433565,
+              0.9612584227369118
+            ]
+          },
+          "single-session-preference": {
+            "k": 17,
+            "n": 30,
+            "rate": 0.5666666666666667,
+            "ci95": [
+              0.3919700954540873,
+              0.7262276256938489
+            ]
+          },
+          "single-session-user": {
+            "k": 64,
+            "n": 70,
+            "rate": 0.9142857142857143,
+            "ci95": [
+              0.825341230221722,
+              0.9601238734596715
+            ]
+          },
+          "temporal-reasoning": {
+            "k": 115,
+            "n": 133,
+            "rate": 0.8646616541353384,
+            "ci95": [
+              0.7962007135432557,
+              0.9126480575906685
+            ]
+          }
+        },
+        "accuracy_judge2": {
+          "k": 378,
+          "n": 500,
+          "rate": 0.756,
+          "ci95": [
+            0.7164944353121212,
+            0.7916017600000562
+          ]
+        },
+        "judge_agreement": {
+          "k": 461,
+          "n": 500,
+          "rate": 0.922,
+          "ci95": [
+            0.8951458937794419,
+            0.9424189281804758
+          ]
+        },
+        "knowledge_update_accuracy": {
+          "k": 65,
+          "n": 72,
+          "rate": 0.9027777777777778,
+          "ci95": [
+            0.812647509746432,
+            0.9521042887388321
+          ]
+        },
+        "knowledge_update_strict_current_only": {
+          "k": 49,
+          "n": 72,
+          "rate": 0.6805555555555556,
+          "ci95": [
+            0.5660743422203383,
+            0.7767454295144354
+          ]
+        },
+        "knowledge_update_outdated_as_current": {
+          "k": 3,
+          "n": 72,
+          "rate": 0.041666666666666664,
+          "ci95": [
+            0.01427054877259009,
+            0.11549464605452325
+          ]
+        },
+        "knowledge_update_labels": {
+          "current_only": 49,
+          "outdated_as_current": 3,
+          "other_wrong": 3,
+          "current_with_outdated_mention": 16,
+          "abstained": 1
+        },
+        "abstention_questions_correct": {
+          "k": 25,
+          "n": 30,
+          "rate": 0.8333333333333334,
+          "ci95": [
+            0.6643529481431982,
+            0.9266356575964831
+          ]
+        },
+        "abstained_on_answerable": {
+          "k": 36,
+          "n": 470,
+          "rate": 0.07659574468085106,
+          "ci95": [
+            0.05583738315884421,
+            0.10421947972529261
+          ]
+        },
+        "abstained_overall": {
+          "k": 58,
+          "n": 500,
+          "rate": 0.116,
+          "ci95": [
+            0.09081324505614743,
+            0.14704246197558635
+          ]
+        },
+        "answer_latency_s_mean": 8.966035249664449,
+        "answer_latency_s_p95": 20.162862666184083,
+        "in_tokens_mean": 5591.824,
+        "out_tokens_mean": 852.554,
+        "paired_diff": {
+          "raw_search": {
+            "n": 500,
+            "mean": 0.04,
+            "ci95": [
+              0.006,
+              0.074
+            ]
+          },
+          "raw_search_tuned": {
+            "n": 500,
+            "mean": 0.02,
+            "ci95": [
+              -0.01,
+              0.048
+            ]
+          }
+        }
+      },
+      "strata_lazy": {
+        "n": 500,
+        "accuracy": {
+          "k": 427,
+          "n": 500,
+          "rate": 0.854,
+          "ci95": [
+            0.8203500666587293,
+            0.882251703421391
+          ]
+        },
+        "task_averaged_accuracy": 0.8393475676370413,
+        "by_type": {
+          "knowledge-update": {
+            "k": 73,
+            "n": 78,
+            "rate": 0.9358974358974359,
+            "ci95": [
+              0.8585622037936654,
+              0.9723110929160764
+            ]
+          },
+          "multi-session": {
+            "k": 100,
+            "n": 133,
+            "rate": 0.7518796992481203,
+            "ci95": [
+              0.6720950018941981,
+              0.8175221905385123
+            ]
+          },
+          "single-session-assistant": {
+            "k": 51,
+            "n": 56,
+            "rate": 0.9107142857142857,
+            "ci95": [
+              0.807437601433565,
+              0.9612584227369118
+            ]
+          },
+          "single-session-preference": {
+            "k": 18,
+            "n": 30,
+            "rate": 0.6,
+            "ci95": [
+              0.42320052498273836,
+              0.7540960567391659
+            ]
+          },
+          "single-session-user": {
+            "k": 66,
+            "n": 70,
+            "rate": 0.9428571428571428,
+            "ci95": [
+              0.8620785266792448,
+              0.9775565841525897
+            ]
+          },
+          "temporal-reasoning": {
+            "k": 119,
+            "n": 133,
+            "rate": 0.8947368421052632,
+            "ci95": [
+              0.8310546224420156,
+              0.9362559030122323
+            ]
+          }
+        },
+        "accuracy_judge2": {
+          "k": 392,
+          "n": 500,
+          "rate": 0.784,
+          "ci95": [
+            0.7458363816926995,
+            0.8178328349817475
+          ]
+        },
+        "judge_agreement": {
+          "k": 455,
+          "n": 500,
+          "rate": 0.91,
+          "ci95": [
+            0.8816900083946269,
+            0.9320578044100325
+          ]
+        },
+        "knowledge_update_accuracy": {
+          "k": 68,
+          "n": 72,
+          "rate": 0.9444444444444444,
+          "ci95": [
+            0.865677916427906,
+            0.9781861370730749
+          ]
+        },
+        "knowledge_update_strict_current_only": {
+          "k": 49,
+          "n": 72,
+          "rate": 0.6805555555555556,
+          "ci95": [
+            0.5660743422203383,
+            0.7767454295144354
+          ]
+        },
+        "knowledge_update_outdated_as_current": {
+          "k": 3,
+          "n": 72,
+          "rate": 0.041666666666666664,
+          "ci95": [
+            0.01427054877259009,
+            0.11549464605452325
+          ]
+        },
+        "knowledge_update_labels": {
+          "current_only": 49,
+          "outdated_as_current": 3,
+          "abstained": 1,
+          "current_with_outdated_mention": 18,
+          "other_wrong": 1
+        },
+        "abstention_questions_correct": {
+          "k": 27,
+          "n": 30,
+          "rate": 0.9,
+          "ci95": [
+            0.7437855868473339,
+            0.9654007400402839
+          ]
+        },
+        "abstained_on_answerable": {
+          "k": 28,
+          "n": 470,
+          "rate": 0.059574468085106386,
+          "ci95": [
+            0.041535734221289436,
+            0.08475457038683278
+          ]
+        },
+        "abstained_overall": {
+          "k": 53,
+          "n": 500,
+          "rate": 0.106,
+          "ci95": [
+            0.08195666053446124,
+            0.1360515388678906
+          ]
+        },
+        "answer_latency_s_mean": 8.971486155489925,
+        "answer_latency_s_p95": 18.618137083016336,
+        "in_tokens_mean": 5617.418,
+        "out_tokens_mean": 861.214,
+        "paired_diff": {
+          "raw_search": {
+            "n": 500,
+            "mean": 0.068,
+            "ci95": [
+              0.036,
+              0.1
+            ]
+          },
+          "raw_search_tuned": {
+            "n": 500,
+            "mean": 0.048,
+            "ci95": [
+              0.02,
+              0.076
+            ]
+          }
+        }
+      },
+      "stale_control": {
+        "n": 500,
+        "accuracy": {
+          "k": 428,
+          "n": 500,
+          "rate": 0.856,
+          "ci95": [
+            0.822508879125479,
+            0.8840623924805179
+          ]
+        },
+        "task_averaged_accuracy": 0.848961345671872,
+        "by_type": {
+          "knowledge-update": {
+            "k": 74,
+            "n": 78,
+            "rate": 0.9487179487179487,
+            "ci95": [
+              0.8754314334594728,
+              0.9798793131534966
+            ]
+          },
+          "multi-session": {
+            "k": 101,
+            "n": 133,
+            "rate": 0.7593984962406015,
+            "ci95": [
+              0.6801275870095315,
+              0.8241050440032599
+            ]
+          },
+          "single-session-assistant": {
+            "k": 51,
+            "n": 56,
+            "rate": 0.9107142857142857,
+            "ci95": [
+              0.807437601433565,
+              0.9612584227369118
+            ]
+          },
+          "single-session-preference": {
+            "k": 20,
+            "n": 30,
+            "rate": 0.6666666666666666,
+            "ci95": [
+              0.48779725813830266,
+              0.807697044731538
+            ]
+          },
+          "single-session-user": {
+            "k": 65,
+            "n": 70,
+            "rate": 0.9285714285714286,
+            "ci95": [
+              0.8434438687669077,
+              0.9691062384897065
+            ]
+          },
+          "temporal-reasoning": {
+            "k": 117,
+            "n": 133,
+            "rate": 0.8796992481203008,
+            "ci95": [
+              0.8135008139149994,
+              0.9245788343790865
+            ]
+          }
+        },
+        "accuracy_judge2": {
+          "k": 399,
+          "n": 500,
+          "rate": 0.798,
+          "ci95": [
+            0.7605963875890438,
+            0.8308593397665378
+          ]
+        },
+        "judge_agreement": {
+          "k": 457,
+          "n": 500,
+          "rate": 0.914,
+          "ci95": [
+            0.8861596159077154,
+            0.9355271999486967
+          ]
+        },
+        "knowledge_update_accuracy": {
+          "k": 68,
+          "n": 72,
+          "rate": 0.9444444444444444,
+          "ci95": [
+            0.865677916427906,
+            0.9781861370730749
+          ]
+        },
+        "knowledge_update_strict_current_only": {
+          "k": 48,
+          "n": 72,
+          "rate": 0.6666666666666666,
+          "ci95": [
+            0.5517938807199863,
+            0.7646551393428815
+          ]
+        },
+        "knowledge_update_outdated_as_current": {
+          "k": 3,
+          "n": 72,
+          "rate": 0.041666666666666664,
+          "ci95": [
+            0.01427054877259009,
+            0.11549464605452325
+          ]
+        },
+        "knowledge_update_labels": {
+          "current_only": 48,
+          "outdated_as_current": 3,
+          "other_wrong": 2,
+          "current_with_outdated_mention": 18,
+          "abstained": 1
+        },
+        "abstention_questions_correct": {
+          "k": 27,
+          "n": 30,
+          "rate": 0.9,
+          "ci95": [
+            0.7437855868473339,
+            0.9654007400402839
+          ]
+        },
+        "abstained_on_answerable": {
+          "k": 32,
+          "n": 470,
+          "rate": 0.06808510638297872,
+          "ci95": [
+            0.048637514196883294,
+            0.09453606954924622
+          ]
+        },
+        "abstained_overall": {
+          "k": 57,
+          "n": 500,
+          "rate": 0.114,
+          "ci95": [
+            0.08903649378821105,
+            0.14484971171764635
+          ]
+        },
+        "answer_latency_s_mean": 9.262114361833781,
+        "answer_latency_s_p95": 20.24986999994144,
+        "in_tokens_mean": 5554.474,
+        "out_tokens_mean": 860.736,
+        "paired_diff": {
+          "raw_search": {
+            "n": 500,
+            "mean": 0.07,
+            "ci95": [
+              0.038,
+              0.104
+            ]
+          },
+          "raw_search_tuned": {
+            "n": 500,
+            "mean": 0.05,
+            "ci95": [
+              0.022,
+              0.08
+            ]
+          }
+        }
+      },
+      "digest_eager": {
+        "n": 40,
+        "accuracy": {
+          "k": 34,
+          "n": 40,
+          "rate": 0.85,
+          "ci95": [
+            0.7092737396097997,
+            0.9293890829149256
+          ]
+        },
+        "task_averaged_accuracy": 0.8282828282828283,
+        "by_type": {
+          "knowledge-update": {
+            "k": 6,
+            "n": 6,
+            "rate": 1.0,
+            "ci95": [
+              0.6096569663469354,
+              0.9999999999999999
+            ]
+          },
+          "multi-session": {
+            "k": 8,
+            "n": 11,
+            "rate": 0.7272727272727273,
+            "ci95": [
+              0.4343497069897537,
+              0.9025411942607853
+            ]
+          },
+          "single-session-assistant": {
+            "k": 4,
+            "n": 4,
+            "rate": 1.0,
+            "ci95": [
+              0.5100999795960008,
+              1.0
+            ]
+          },
+          "single-session-preference": {
+            "k": 1,
+            "n": 2,
+            "rate": 0.5,
+            "ci95": [
+              0.09452865480086614,
+              0.9054713451991339
+            ]
+          },
+          "single-session-user": {
+            "k": 5,
+            "n": 6,
+            "rate": 0.8333333333333334,
+            "ci95": [
+              0.43649056343635395,
+              0.9699474141282697
+            ]
+          },
+          "temporal-reasoning": {
+            "k": 10,
+            "n": 11,
+            "rate": 0.9090909090909091,
+            "ci95": [
+              0.6226353745137962,
+              0.9837682477371741
+            ]
+          }
+        },
+        "accuracy_judge2": {
+          "k": 31,
+          "n": 40,
+          "rate": 0.775,
+          "ci95": [
+            0.6249660359590695,
+            0.8768404674532148
+          ]
+        },
+        "judge_agreement": {
+          "k": 37,
+          "n": 40,
+          "rate": 0.925,
+          "ci95": [
+            0.8013546984090248,
+            0.9741644432281419
+          ]
+        },
+        "knowledge_update_accuracy": {
+          "k": 6,
+          "n": 6,
+          "rate": 1.0,
+          "ci95": [
+            0.6096569663469354,
+            0.9999999999999999
+          ]
+        },
+        "knowledge_update_strict_current_only": {
+          "k": 4,
+          "n": 6,
+          "rate": 0.6666666666666666,
+          "ci95": [
+            0.29998832134152864,
+            0.9032306674407831
+          ]
+        },
+        "knowledge_update_outdated_as_current": {
+          "k": 0,
+          "n": 6,
+          "rate": 0.0,
+          "ci95": [
+            0.0,
+            0.3903430336530645
+          ]
+        },
+        "knowledge_update_labels": {
+          "current_only": 4,
+          "current_with_outdated_mention": 1,
+          "other_wrong": 1
+        },
+        "abstention_questions_correct": {
+          "k": 2,
+          "n": 2,
+          "rate": 1.0,
+          "ci95": [
+            0.34237195288961925,
+            1.0
+          ]
+        },
+        "abstained_on_answerable": {
+          "k": 2,
+          "n": 38,
+          "rate": 0.05263157894736842,
+          "ci95": [
+            0.014553902448536798,
+            0.17285766881068843
+          ]
+        },
+        "abstained_overall": {
+          "k": 4,
+          "n": 40,
+          "rate": 0.1,
+          "ci95": [
+            0.03957888759557486,
+            0.23052074380473897
+          ]
+        },
+        "answer_latency_s_mean": 9.453103041596478,
+        "answer_latency_s_p95": 16.94755212496966,
+        "in_tokens_mean": 5763.025,
+        "out_tokens_mean": 973.375,
+        "paired_diff": {
+          "raw_search": {
+            "n": 40,
+            "mean": 0.125,
+            "ci95": [
+              0.0,
+              0.25
+            ]
+          },
+          "raw_search_tuned": {
+            "n": 40,
+            "mean": 0.05,
+            "ci95": [
+              -0.1,
+              0.175
+            ]
+          }
+        }
+      },
+      "digest_priority": {
+        "n": 40,
+        "accuracy": {
+          "k": 33,
+          "n": 40,
+          "rate": 0.825,
+          "ci95": [
+            0.6804970794560755,
+            0.9125469700311694
+          ]
+        },
+        "task_averaged_accuracy": 0.8005050505050505,
+        "by_type": {
+          "knowledge-update": {
+            "k": 5,
+            "n": 6,
+            "rate": 0.8333333333333334,
+            "ci95": [
+              0.43649056343635395,
+              0.9699474141282697
+            ]
+          },
+          "multi-session": {
+            "k": 8,
+            "n": 11,
+            "rate": 0.7272727272727273,
+            "ci95": [
+              0.4343497069897537,
+              0.9025411942607853
+            ]
+          },
+          "single-session-assistant": {
+            "k": 4,
+            "n": 4,
+            "rate": 1.0,
+            "ci95": [
+              0.5100999795960008,
+              1.0
+            ]
+          },
+          "single-session-preference": {
+            "k": 1,
+            "n": 2,
+            "rate": 0.5,
+            "ci95": [
+              0.09452865480086614,
+              0.9054713451991339
+            ]
+          },
+          "single-session-user": {
+            "k": 5,
+            "n": 6,
+            "rate": 0.8333333333333334,
+            "ci95": [
+              0.43649056343635395,
+              0.9699474141282697
+            ]
+          },
+          "temporal-reasoning": {
+            "k": 10,
+            "n": 11,
+            "rate": 0.9090909090909091,
+            "ci95": [
+              0.6226353745137962,
+              0.9837682477371741
+            ]
+          }
+        },
+        "accuracy_judge2": {
+          "k": 29,
+          "n": 40,
+          "rate": 0.725,
+          "ci95": [
+            0.5716474916687543,
+            0.8389214656685692
+          ]
+        },
+        "judge_agreement": {
+          "k": 36,
+          "n": 40,
+          "rate": 0.9,
+          "ci95": [
+            0.7694792561952611,
+            0.9604211124044252
+          ]
+        },
+        "knowledge_update_accuracy": {
+          "k": 5,
+          "n": 6,
+          "rate": 0.8333333333333334,
+          "ci95": [
+            0.43649056343635395,
+            0.9699474141282697
+          ]
+        },
+        "knowledge_update_strict_current_only": {
+          "k": 4,
+          "n": 6,
+          "rate": 0.6666666666666666,
+          "ci95": [
+            0.29998832134152864,
+            0.9032306674407831
+          ]
+        },
+        "knowledge_update_outdated_as_current": {
+          "k": 1,
+          "n": 6,
+          "rate": 0.16666666666666666,
+          "ci95": [
+            0.03005258587173032,
+            0.563509436563646
+          ]
+        },
+        "knowledge_update_labels": {
+          "current_only": 4,
+          "outdated_as_current": 1,
+          "abstained": 1
+        },
+        "abstention_questions_correct": {
+          "k": 2,
+          "n": 2,
+          "rate": 1.0,
+          "ci95": [
+            0.34237195288961925,
+            1.0
+          ]
+        },
+        "abstained_on_answerable": {
+          "k": 3,
+          "n": 38,
+          "rate": 0.07894736842105263,
+          "ci95": [
+            0.02721410139426493,
+            0.2079967892026529
+          ]
+        },
+        "abstained_overall": {
+          "k": 5,
+          "n": 40,
+          "rate": 0.125,
+          "ci95": [
+            0.05459419773541284,
+            0.26112420670238146
+          ]
+        },
+        "answer_latency_s_mean": 7.691231838497333,
+        "answer_latency_s_p95": 15.75287437508814,
+        "in_tokens_mean": 5557.925,
+        "out_tokens_mean": 889.075,
+        "paired_diff": {
+          "raw_search": {
+            "n": 40,
+            "mean": 0.1,
+            "ci95": [
+              -0.05,
+              0.225
+            ]
+          },
+          "raw_search_tuned": {
+            "n": 40,
+            "mean": 0.025,
+            "ci95": [
+              -0.075,
+              0.125
+            ]
+          }
+        }
+      },
+      "digest_lazy": {
+        "n": 40,
+        "accuracy": {
+          "k": 32,
+          "n": 40,
+          "rate": 0.8,
+          "ci95": [
+            0.6524239261814333,
+            0.8950013502683314
+          ]
+        },
+        "task_averaged_accuracy": 0.797979797979798,
+        "by_type": {
+          "knowledge-update": {
+            "k": 5,
+            "n": 6,
+            "rate": 0.8333333333333334,
+            "ci95": [
+              0.43649056343635395,
+              0.9699474141282697
+            ]
+          },
+          "multi-session": {
+            "k": 8,
+            "n": 11,
+            "rate": 0.7272727272727273,
+            "ci95": [
+              0.4343497069897537,
+              0.9025411942607853
+            ]
+          },
+          "single-session-assistant": {
+            "k": 4,
+            "n": 4,
+            "rate": 1.0,
+            "ci95": [
+              0.5100999795960008,
+              1.0
+            ]
+          },
+          "single-session-preference": {
+            "k": 1,
+            "n": 2,
+            "rate": 0.5,
+            "ci95": [
+              0.09452865480086614,
+              0.9054713451991339
+            ]
+          },
+          "single-session-user": {
+            "k": 6,
+            "n": 6,
+            "rate": 1.0,
+            "ci95": [
+              0.6096569663469354,
+              0.9999999999999999
+            ]
+          },
+          "temporal-reasoning": {
+            "k": 8,
+            "n": 11,
+            "rate": 0.7272727272727273,
+            "ci95": [
+              0.4343497069897537,
+              0.9025411942607853
+            ]
+          }
+        },
+        "accuracy_judge2": {
+          "k": 30,
+          "n": 40,
+          "rate": 0.75,
+          "ci95": [
+            0.598057409330299,
+            0.8581303210445048
+          ]
+        },
+        "judge_agreement": {
+          "k": 38,
+          "n": 40,
+          "rate": 0.95,
+          "ci95": [
+            0.834958291820748,
+            0.9861796228538989
+          ]
+        },
+        "knowledge_update_accuracy": {
+          "k": 5,
+          "n": 6,
+          "rate": 0.8333333333333334,
+          "ci95": [
+            0.43649056343635395,
+            0.9699474141282697
+          ]
+        },
+        "knowledge_update_strict_current_only": {
+          "k": 4,
+          "n": 6,
+          "rate": 0.6666666666666666,
+          "ci95": [
+            0.29998832134152864,
+            0.9032306674407831
+          ]
+        },
+        "knowledge_update_outdated_as_current": {
+          "k": 1,
+          "n": 6,
+          "rate": 0.16666666666666666,
+          "ci95": [
+            0.03005258587173032,
+            0.563509436563646
+          ]
+        },
+        "knowledge_update_labels": {
+          "current_only": 4,
+          "outdated_as_current": 1,
+          "abstained": 1
+        },
+        "abstention_questions_correct": {
+          "k": 2,
+          "n": 2,
+          "rate": 1.0,
+          "ci95": [
+            0.34237195288961925,
+            1.0
+          ]
+        },
+        "abstained_on_answerable": {
+          "k": 2,
+          "n": 38,
+          "rate": 0.05263157894736842,
+          "ci95": [
+            0.014553902448536798,
+            0.17285766881068843
+          ]
+        },
+        "abstained_overall": {
+          "k": 4,
+          "n": 40,
+          "rate": 0.1,
+          "ci95": [
+            0.03957888759557486,
+            0.23052074380473897
+          ]
+        },
+        "answer_latency_s_mean": 7.924339994805632,
+        "answer_latency_s_p95": 15.935271583963186,
+        "in_tokens_mean": 5602.525,
+        "out_tokens_mean": 928.375,
+        "paired_diff": {
+          "raw_search": {
+            "n": 40,
+            "mean": 0.075,
+            "ci95": [
+              -0.075,
+              0.225
+            ]
+          },
+          "raw_search_tuned": {
+            "n": 40,
+            "mean": 0.0,
+            "ci95": [
+              -0.15,
+              0.125
+            ]
+          }
+        }
+      },
+      "digest_stale": {
+        "n": 40,
+        "accuracy": {
+          "k": 33,
+          "n": 40,
+          "rate": 0.825,
+          "ci95": [
+            0.6804970794560755,
+            0.9125469700311694
+          ]
+        },
+        "task_averaged_accuracy": 0.8131313131313131,
+        "by_type": {
+          "knowledge-update": {
+            "k": 5,
+            "n": 6,
+            "rate": 0.8333333333333334,
+            "ci95": [
+              0.43649056343635395,
+              0.9699474141282697
+            ]
+          },
+          "multi-session": {
+            "k": 8,
+            "n": 11,
+            "rate": 0.7272727272727273,
+            "ci95": [
+              0.4343497069897537,
+              0.9025411942607853
+            ]
+          },
+          "single-session-assistant": {
+            "k": 4,
+            "n": 4,
+            "rate": 1.0,
+            "ci95": [
+              0.5100999795960008,
+              1.0
+            ]
+          },
+          "single-session-preference": {
+            "k": 1,
+            "n": 2,
+            "rate": 0.5,
+            "ci95": [
+              0.09452865480086614,
+              0.9054713451991339
+            ]
+          },
+          "single-session-user": {
+            "k": 6,
+            "n": 6,
+            "rate": 1.0,
+            "ci95": [
+              0.6096569663469354,
+              0.9999999999999999
+            ]
+          },
+          "temporal-reasoning": {
+            "k": 9,
+            "n": 11,
+            "rate": 0.8181818181818182,
+            "ci95": [
+              0.5230138624217553,
+              0.9486333993289995
+            ]
+          }
+        },
+        "accuracy_judge2": {
+          "k": 30,
+          "n": 40,
+          "rate": 0.75,
+          "ci95": [
+            0.598057409330299,
+            0.8581303210445048
+          ]
+        },
+        "judge_agreement": {
+          "k": 37,
+          "n": 40,
+          "rate": 0.925,
+          "ci95": [
+            0.8013546984090248,
+            0.9741644432281419
+          ]
+        },
+        "knowledge_update_accuracy": {
+          "k": 5,
+          "n": 6,
+          "rate": 0.8333333333333334,
+          "ci95": [
+            0.43649056343635395,
+            0.9699474141282697
+          ]
+        },
+        "knowledge_update_strict_current_only": {
+          "k": 5,
+          "n": 6,
+          "rate": 0.8333333333333334,
+          "ci95": [
+            0.43649056343635395,
+            0.9699474141282697
+          ]
+        },
+        "knowledge_update_outdated_as_current": {
+          "k": 1,
+          "n": 6,
+          "rate": 0.16666666666666666,
+          "ci95": [
+            0.03005258587173032,
+            0.563509436563646
+          ]
+        },
+        "knowledge_update_labels": {
+          "current_only": 5,
+          "outdated_as_current": 1
+        },
+        "abstention_questions_correct": {
+          "k": 2,
+          "n": 2,
+          "rate": 1.0,
+          "ci95": [
+            0.34237195288961925,
+            1.0
+          ]
+        },
+        "abstained_on_answerable": {
+          "k": 2,
+          "n": 38,
+          "rate": 0.05263157894736842,
+          "ci95": [
+            0.014553902448536798,
+            0.17285766881068843
+          ]
+        },
+        "abstained_overall": {
+          "k": 4,
+          "n": 40,
+          "rate": 0.1,
+          "ci95": [
+            0.03957888759557486,
+            0.23052074380473897
+          ]
+        },
+        "answer_latency_s_mean": 8.753163870767457,
+        "answer_latency_s_p95": 18.646382165839896,
+        "in_tokens_mean": 5799.825,
+        "out_tokens_mean": 975.55,
+        "paired_diff": {
+          "raw_search": {
+            "n": 40,
+            "mean": 0.1,
+            "ci95": [
+              -0.025,
+              0.225
+            ]
+          },
+          "raw_search_tuned": {
+            "n": 40,
+            "mean": 0.025,
+            "ci95": [
+              -0.1,
+              0.15
+            ]
+          }
+        }
+      }
+    }
+  },
+  "extraction": {
+    "questions": 500,
+    "calls": 4048,
+    "in_tokens": 11311533,
+    "out_tokens": 14192824,
+    "failed_sessions": 241,
+    "sessions": 23867,
+    "facts": 67860
+  },
+  "digests": {
+    "digest_eager": {
+      "questions": 40,
+      "defined": 348,
+      "valid_at_query": 348,
+      "calls": 2639,
+      "tokens_spent": 4438469,
+      "full_rebuild_tokens_estimate": 19251729.0,
+      "build_once_at_query_tokens_estimate": 657859.0
+    },
+    "digest_priority": {
+      "questions": 40,
+      "defined": 348,
+      "valid_at_query": 150,
+      "calls": 1141,
+      "tokens_spent": 1397024,
+      "full_rebuild_tokens_estimate": 17506320.0,
+      "build_once_at_query_tokens_estimate": 646839.0
+    },
+    "digest_lazy": {
+      "questions": 40,
+      "defined": 348,
+      "valid_at_query": 61,
+      "calls": 61,
+      "tokens_spent": 151151,
+      "full_rebuild_tokens_estimate": 0.0,
+      "build_once_at_query_tokens_estimate": 151151.0
+    },
+    "digest_stale": {
+      "questions": 40,
+      "defined": 348,
+      "valid_at_query": 150,
+      "calls": 1343,
+      "tokens_spent": 1564781,
+      "full_rebuild_tokens_estimate": 20260583.0,
+      "build_once_at_query_tokens_estimate": 660886.0
+    }
+  },
+  "backend_errors": [],
+  "live_calls": {
+    "cursor:composer-2.5-fast": {
+      "live": 0,
+      "cache_hits": 0
+    },
+    "cursor:cursor-grok-4.6-low-fast": {
+      "live": 317,
+      "cache_hits": 199
+    },
+    "cursor:grok-4.7-low-fast": {
+      "live": 244,
+      "cache_hits": 40
+    }
+  }
+}

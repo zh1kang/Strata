@@ -1035,6 +1035,28 @@ def paired_bootstrap(a: list[int], b: list[int], seed: int = 0, rounds: int = 20
     return [diffs[int(0.025 * rounds)], diffs[int(0.975 * rounds)]]
 
 
+def cluster_bootstrap(
+    pairs: list[tuple[Any, int, int]], seed: int = 0, rounds: int = 2000
+) -> list[float]:
+    """95% percentile CI of a paired mean difference, resampling whole clusters.
+
+    ``pairs`` holds (cluster, a, b) per cell. Cells of one cluster (a question asked at several
+    checkpoints, or the questions of one episode) are correlated, so they are drawn together.
+    """
+    totals: dict[Any, tuple[int, int]] = {}
+    for key, a, b in pairs:
+        d, n = totals.get(key, (0, 0))
+        totals[key] = (d + a - b, n + 1)
+    stats = list(totals.values())
+    rng = random.Random(seed)
+    diffs = []
+    for _ in range(rounds):
+        draw = [stats[rng.randrange(len(stats))] for _ in stats]
+        diffs.append(sum(d for d, _ in draw) / sum(n for _, n in draw))
+    diffs.sort()
+    return [diffs[int(0.025 * rounds)], diffs[int(0.975 * rounds)]]
+
+
 def build_report(
     questions: list[dict[str, Any]],
     contexts: dict[str, dict],

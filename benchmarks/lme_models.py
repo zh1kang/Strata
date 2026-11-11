@@ -25,11 +25,29 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import tiktoken
+
 from strata.llm import ModelRequest, ModelResponse
 
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 CURSOR_WORKDIR = Path("/tmp/strata-bench-empty-workspace")
 RATE_LIMIT_RETRIES = 10  # backoff 30s doubling, capped at 300s: about 35 minutes in total
+_ENCODING = tiktoken.get_encoding("o200k_base")
+
+
+def count_tokens(text: str) -> int:
+    """Tokens of ``text`` under o200k_base.
+
+    Costs are counted locally because the Cursor CLI's reported input tokens leave out
+    cache reads and include its own agent prompt; local counts are the same for every
+    backend and do not depend on whether a response came from the cache.
+    """
+    return len(_ENCODING.encode(text, disallowed_special=()))
+
+
+def request_tokens(request: ModelRequest, response_text: str) -> int:
+    """Local token cost of one call: system prompt, prompt, and completion."""
+    return count_tokens(request.system) + count_tokens(request.prompt) + count_tokens(response_text)
 
 
 class BackendError(RuntimeError):

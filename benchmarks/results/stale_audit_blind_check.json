@@ -1,0 +1,379 @@
+{
+ "description": "Blind check of the staleness audit judge. Seed-1 sample of judge verdicts per system; each served page was compared with eager's current page by a second LLM reviewer (Claude) that did not see the judge's verdict. strict_contradicted is true only if the served page states a value that the current page replaces.",
+ "summary": {
+  "untracked": {
+   "judge_positive": 20,
+   "confirmed": 6,
+   "judge_negative": 6,
+   "flipped": 0
+  },
+  "stale_priority_15": {
+   "judge_positive": 10,
+   "confirmed": 5,
+   "judge_negative": 4,
+   "flipped": 0
+  }
+ },
+ "pairs": [
+  {
+   "system": "untracked",
+   "world": "eduops_w2",
+   "checkpoint": "p20",
+   "page": "MAP-330",
+   "judge_contradicted": 3,
+   "strict_contradicted": false,
+   "evidence": "same title, credits, category, policies; served only omits fee lines"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w3",
+   "checkpoint": "p100",
+   "page": "MUS-230",
+   "judge_contradicted": 2,
+   "strict_contradicted": false,
+   "evidence": "all values match (credits, Methods 9, prereq MUS-110, fall fees, exam date)"
+  },
+  {
+   "system": "untracked",
+   "world": "tripops_w3",
+   "checkpoint": "p20",
+   "page": "Jori",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "all values match (655/470/1420 CR, 1650 CR flag, meal caps)"
+  },
+  {
+   "system": "untracked",
+   "world": "tripops_w2",
+   "checkpoint": "p100",
+   "page": "Trip-Farrow",
+   "judge_contradicted": 2,
+   "strict_contradicted": false,
+   "evidence": "same facts; served's derived claim total 194 CR excludes lodging (no lodging receipt) while current's illustrative 370 CR includes it - interpretive difference, not a changed fact"
+  },
+  {
+   "system": "untracked",
+   "world": "shopops_w2",
+   "checkpoint": "p80",
+   "page": "Order-Pike",
+   "judge_contradicted": 2,
+   "strict_contradicted": true,
+   "evidence": "served: budget confirmation applies only if kept-item spend exceeds 900 CR [s2_e021] vs current: threshold 800 CR (900 CR rule superseded 2026-05-11) [s2_e177]"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w3",
+   "checkpoint": "p20",
+   "page": "PAL-360",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "same values; served omits Applied 8-credit requirement and fee lines"
+  },
+  {
+   "system": "untracked",
+   "world": "tripops_w3",
+   "checkpoint": "p100",
+   "page": "Trip-Heath",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "same facts; served treats 172 CR lodging as not yet claimable (no receipt) - interpretive, current does not assert it is claimable"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w3",
+   "checkpoint": "p20",
+   "page": "RHE-410",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "same values; served omits Methods requirement and fee lines"
+  },
+  {
+   "system": "untracked",
+   "world": "shopops_w3",
+   "checkpoint": "p100",
+   "page": "Order-Harbor",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "same values; served labels earlier fulfillment steps as superseded, consistent with current"
+  },
+  {
+   "system": "untracked",
+   "world": "tripops_w3",
+   "checkpoint": "p100",
+   "page": "Trip-Kestrel",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "all values match (610/468/342 CR, 1500 CR flag, 63 CR/day)"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w2",
+   "checkpoint": "p20",
+   "page": "MAP-460",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "same values; served omits Applied requirement and fee lines"
+  },
+  {
+   "system": "untracked",
+   "world": "tripops_w2",
+   "checkpoint": "p80",
+   "page": "Trip-Osten",
+   "judge_contradicted": 2,
+   "strict_contradicted": true,
+   "evidence": "served: finance flag threshold 1550 CR [w2_e048], Tier-1 meal cap 58 CR/day [w2_e047] vs current: 1400 CR [w2_e253], 64 CR/day [w2_e325]"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w2",
+   "checkpoint": "p20",
+   "page": "LIT-410",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "same values; served omits Methods requirement and fee lines"
+  },
+  {
+   "system": "untracked",
+   "world": "shopops_w3",
+   "checkpoint": "p100",
+   "page": "Order-Comet",
+   "judge_contradicted": 2,
+   "strict_contradicted": true,
+   "evidence": "served: kept-item tally exceeds 900 CR threshold [s3_e022] vs current: threshold 800 CR [s3_e184]"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w2",
+   "checkpoint": "p100",
+   "page": "LIT-210",
+   "judge_contradicted": 2,
+   "strict_contradicted": true,
+   "evidence": "served: Methods category requirement is 12 credits [e2_e086] vs current: 9 credits, 12 superseded 2026-07-06 [e2_e309]"
+  },
+  {
+   "system": "untracked",
+   "world": "tripops_w2",
+   "checkpoint": "p100",
+   "page": "Harbor League",
+   "judge_contradicted": 4,
+   "strict_contradicted": true,
+   "evidence": "served: 'No policies named for Harbor League are in effect' vs current: departure to member states requires travel clearance [w2_e022], visa-list entry passes for Quarra/Sorve, meal caps, claim rules"
+  },
+  {
+   "system": "untracked",
+   "world": "tripops_w2",
+   "checkpoint": "p80",
+   "page": "Trip-Quill",
+   "judge_contradicted": 2,
+   "strict_contradicted": true,
+   "evidence": "served: claim 1431 CR below 1550 CR flag threshold [w2_e048]; Joren clearance valid until 2026-06-16 vs current: flag threshold 1400 CR so 1431 CR must be flagged [w2_e253]; clearance renewed, valid until 2026-12-16"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w3",
+   "checkpoint": "p40",
+   "page": "GEO-410",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "same values; served omits Applied requirement and fee lines"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w3",
+   "checkpoint": "p40",
+   "page": "MUS-450",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "same values; served omits Applied requirement and fee lines"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w3",
+   "checkpoint": "p80",
+   "page": "PAL-360",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "same values; served omits category requirements, other term windows and fees"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w3",
+   "checkpoint": "p40",
+   "page": "OBS-101",
+   "judge_contradicted": 0,
+   "strict_contradicted": false,
+   "evidence": "all values match"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w3",
+   "checkpoint": "p100",
+   "page": "RHE-410",
+   "judge_contradicted": 0,
+   "strict_contradicted": false,
+   "evidence": "all values match (prereq RHE-305, Methods 9)"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w3",
+   "checkpoint": "p80",
+   "page": "OBS-101",
+   "judge_contradicted": 0,
+   "strict_contradicted": false,
+   "evidence": "all values match"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w3",
+   "checkpoint": "p100",
+   "page": "OBS-460",
+   "judge_contradicted": 0,
+   "strict_contradicted": false,
+   "evidence": "all values match (prereq OBS-450, Applied 8)"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w3",
+   "checkpoint": "p20",
+   "page": "OBS-101",
+   "judge_contradicted": 0,
+   "strict_contradicted": false,
+   "evidence": "all values match"
+  },
+  {
+   "system": "untracked",
+   "world": "eduops_w3",
+   "checkpoint": "p80",
+   "page": "GEO-410",
+   "judge_contradicted": 0,
+   "strict_contradicted": false,
+   "evidence": "all values match"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "eduops_w3",
+   "checkpoint": "p80",
+   "page": "OBS-330",
+   "judge_contradicted": 2,
+   "strict_contradicted": false,
+   "evidence": "all values match (prereqs OBS-210 and GEO-140, Methods 9)"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "shopops_w2",
+   "checkpoint": "p100",
+   "page": "Order-Pike",
+   "judge_contradicted": 2,
+   "strict_contradicted": false,
+   "evidence": "policy line uses 800 CR threshold as current; history note says 800 CR applies to later orders and Order-Pike predates launch, which is unclear but not a clear contradiction"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "shopops_w2",
+   "checkpoint": "p20",
+   "page": "Lantern Desk",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "served mentions 900 CR threshold [s2_e021]; current does not state a threshold value (and cites s2_e021 as active) - absence, not contradiction"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "shopops_w3",
+   "checkpoint": "p80",
+   "page": "Order-Lyric",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "all values match (830 CR tally, 800 CR threshold, 305 CR list price)"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "eduops_w3",
+   "checkpoint": "p100",
+   "page": "MUS-230",
+   "judge_contradicted": 2,
+   "strict_contradicted": true,
+   "evidence": "served: Methods requires 12 credits [e3_e086]; no superseded values vs current: Methods requirement 9 credits, supersedes 12 [e3_e317]"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "tripops_w3",
+   "checkpoint": "p100",
+   "page": "Trip-Bellis",
+   "judge_contradicted": 1,
+   "strict_contradicted": false,
+   "evidence": "all values match (413 CR, 1500 CR flag, 63 CR/day)"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "eduops_w2",
+   "checkpoint": "p100",
+   "page": "Isla",
+   "judge_contradicted": 6,
+   "strict_contradicted": true,
+   "evidence": "served: assigned advisor Odell [e2_e087]; Methods requirement 12 credits vs current: advisor Brenna (Odell -> Brenna 2026-08-17) [e2_e354]; Methods 9 credits [e2_e309]"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "tripops_w3",
+   "checkpoint": "p80",
+   "page": "Trip-Bellis",
+   "judge_contradicted": 1,
+   "strict_contradicted": true,
+   "evidence": "served: Tier-1 meal cap 56 CR/day [w3_e042] vs current: 63 CR/day [w3_e319]"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "eduops_w2",
+   "checkpoint": "p80",
+   "page": "HYD-380",
+   "judge_contradicted": 2,
+   "strict_contradicted": true,
+   "evidence": "served: no prerequisites listed for HYD-380, none required; Methods 12 credits vs current: prerequisite HYD-260 [e2_e316]; Methods 9 credits [e2_e309]"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "eduops_w2",
+   "checkpoint": "p80",
+   "page": "KLN-310",
+   "judge_contradicted": 2,
+   "strict_contradicted": true,
+   "evidence": "served: KLN-310 has no listed prerequisites, none required vs current: prerequisite KLN-220 added 2026-08-10 [e2_e342]"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "tripops_w4",
+   "checkpoint": "p100",
+   "page": "Trip-Drift",
+   "judge_contradicted": 0,
+   "strict_contradicted": false,
+   "evidence": "all values match (canceled, 265 CR removed, Q2 3600 CR, 61 CR/day, 1520 CR flag); served adds clearance rule not in current"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "tripops_w3",
+   "checkpoint": "p40",
+   "page": "Trip-Alder",
+   "judge_contradicted": 0,
+   "strict_contradicted": false,
+   "evidence": "all values match (1538 CR, 1650 CR flag, 41 CR/day)"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "eduops_w3",
+   "checkpoint": "p100",
+   "page": "BOT-310",
+   "judge_contradicted": 0,
+   "strict_contradicted": false,
+   "evidence": "all values match (prereq BOT-220, Applied 8)"
+  },
+  {
+   "system": "stale_priority_15",
+   "world": "eduops_w3",
+   "checkpoint": "p60",
+   "page": "BOT-310",
+   "judge_contradicted": 0,
+   "strict_contradicted": false,
+   "evidence": "all values match (no prerequisites at this point, Applied 8)"
+  }
+ ]
+}

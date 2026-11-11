@@ -1,0 +1,55 @@
+{
+  "environment": {
+    "strata": "0.2.0",
+    "python": "3.13.9",
+    "sqlite": "3.50.2",
+    "machine": "Darwin arm64 arm"
+  },
+  "results": [
+    {
+      "events": 1000,
+      "subjects": 50,
+      "ingest_events_per_s": 12574.760877902416,
+      "initial_jobs": 50,
+      "initial_jobs_per_s": 4609.197689146386,
+      "changed_subjects": 1,
+      "incremental_jobs": 1,
+      "incremental_ms": 0.25954190641641617,
+      "rebuild_jobs": 50,
+      "rebuild_ms": 8.207791950553656,
+      "recall_p50_ms": 0.5695829167962074,
+      "recall_p95_ms": 0.6129590328782797,
+      "bytes_per_event": 634.88
+    },
+    {
+      "events": 10000,
+      "subjects": 500,
+      "ingest_events_per_s": 11913.691259718618,
+      "initial_jobs": 500,
+      "initial_jobs_per_s": 4595.241524513188,
+      "changed_subjects": 5,
+      "incremental_jobs": 5,
+      "incremental_ms": 1.1202499736100435,
+      "rebuild_jobs": 500,
+      "rebuild_ms": 86.67291584424675,
+      "recall_p50_ms": 1.4259169111028314,
+      "recall_p95_ms": 1.4805840328335762,
+      "bytes_per_event": 494.7968
+    },
+    {
+      "events": 100000,
+      "subjects": 5000,
+      "ingest_events_per_s": 6056.36408219247,
+      "initial_jobs": 5000,
+      "initial_jobs_per_s": 2873.0812757569315,
+      "changed_subjects": 50,
+      "incremental_jobs": 50,
+      "incremental_ms": 24.432166945189238,
+      "rebuild_jobs": 5000,
+      "rebuild_ms": 1212.0541660115123,
+      "recall_p50_ms": 15.053604613058269,
+      "recall_p95_ms": 22.242083912715316,
+      "bytes_per_event": 492.544
+    }
+  ]
+}
